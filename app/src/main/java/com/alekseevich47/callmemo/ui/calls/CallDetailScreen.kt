@@ -3,9 +3,13 @@ package com.alekseevich47.callmemo.ui.calls
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -48,12 +52,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.alekseevich47.callmemo.domain.model.CallDetail
 import com.alekseevich47.callmemo.domain.model.CallDirection
 import com.alekseevich47.callmemo.domain.model.CallLogEntry
 import com.alekseevich47.callmemo.player.PlaybackUiState
@@ -67,6 +75,7 @@ import com.alekseevich47.callmemo.ui.theme.CallMemoMuted
 import com.alekseevich47.callmemo.ui.theme.CallMemoSky
 import com.alekseevich47.callmemo.util.PhoneNumberUtils
 import com.alekseevich47.callmemo.util.TimeFormat
+import kotlin.math.min
 
 @Composable
 fun CallDetailRoute(
@@ -86,92 +95,195 @@ fun CallDetailRoute(
     var historyExpanded by rememberSaveable { mutableStateOf(false) }
     var moreExpanded by remember { mutableStateOf(false) }
     var headerMoreExpanded by remember { mutableStateOf(false) }
+    val scrollState = rememberScrollState()
+    val density = LocalDensity.current
+    val collapseRangePx = with(density) { 120.dp.toPx() }
+    val collapse = min(1f, scrollState.value / collapseRangePx.coerceAtLeast(1f))
+    val avatarScale by animateFloatAsState(
+        targetValue = 1f - 0.88f * collapse,
+        animationSpec = tween(90),
+        label = "avatar-scale",
+    )
+    val avatarAlpha by animateFloatAsState(
+        targetValue = 1f - collapse,
+        animationSpec = tween(90),
+        label = "avatar-alpha",
+    )
+    val avatarHeight by animateDpAsState(
+        targetValue = (72.dp * (1f - collapse)).coerceAtLeast(0.dp),
+        animationSpec = tween(90),
+        label = "avatar-height",
+    )
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(CallMemoMist)
-            .verticalScroll(rememberScrollState())
-            .padding(bottom = 140.dp),
+            .background(CallMemoMist),
     ) {
-        Row(
+        // Sticky chrome: toolbar + collapsing avatar + pinned name/number.
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .background(CallMemoMist),
         ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Назад")
-            }
-            Text(
-                text = "Детали звонка",
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.weight(1f),
-            )
-            IconButton(onClick = { headerMoreExpanded = true }) {
-                Icon(Icons.Outlined.MoreHoriz, contentDescription = "Ещё")
-            }
-            DropdownMenu(
-                expanded = headerMoreExpanded,
-                onDismissRequest = { headerMoreExpanded = false },
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                DropdownMenuItem(
-                    text = { Text("Копировать номер") },
-                    onClick = {
-                        entry?.number?.let { clipboard.setText(AnnotatedString(it)) }
-                        headerMoreExpanded = false
-                    },
-                    leadingIcon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null) },
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Назад")
+                }
+                Text(
+                    text = "Детали звонка",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.weight(1f),
                 )
-                DropdownMenuItem(
-                    text = { Text("Поделиться") },
-                    onClick = {
-                        entry?.let { shareContact(context, it) }
-                        headerMoreExpanded = false
-                    },
-                    leadingIcon = { Icon(Icons.Outlined.Share, contentDescription = null) },
-                )
+                Box {
+                    IconButton(onClick = { headerMoreExpanded = true }) {
+                        Icon(Icons.Outlined.MoreHoriz, contentDescription = "Ещё")
+                    }
+                    DropdownMenu(
+                        expanded = headerMoreExpanded,
+                        onDismissRequest = { headerMoreExpanded = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Копировать номер") },
+                            onClick = {
+                                entry?.number?.let { clipboard.setText(AnnotatedString(it)) }
+                                headerMoreExpanded = false
+                            },
+                            leadingIcon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null) },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Поделиться") },
+                            onClick = {
+                                entry?.let { shareContact(context, it) }
+                                headerMoreExpanded = false
+                            },
+                            leadingIcon = { Icon(Icons.Outlined.Share, contentDescription = null) },
+                        )
+                    }
+                }
+            }
+
+            if (entry != null) {
+                val title = PhoneNumberUtils.displayOrUnknown(entry.contactName, entry.number)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(avatarHeight),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (avatarAlpha > 0.02f) {
+                        AvatarCircle(
+                            label = title,
+                            color = CallMemoBlue,
+                            size = 64.dp,
+                            modifier = Modifier.graphicsLayer {
+                                scaleX = avatarScale
+                                scaleY = avatarScale
+                                alpha = avatarAlpha
+                            },
+                        )
+                    }
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(CallMemoMist)
+                        .padding(horizontal = 20.dp, vertical = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.headlineMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = entry.number,
+                        color = CallMemoMuted,
+                        style = MaterialTheme.typography.bodyLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = "${TimeFormat.full(entry.startedAt)} · ${TimeFormat.duration(entry.durationSeconds)}",
+                        color = CallMemoMuted,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
 
         if (entry == null) {
             Text("Загрузка…", modifier = Modifier.padding(20.dp), color = CallMemoMuted)
-            return
-        }
-
-        val title = PhoneNumberUtils.displayOrUnknown(entry.contactName, entry.number)
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            AvatarCircle(label = title, color = CallMemoBlue)
-            Spacer(Modifier.height(12.dp))
-            Text(title, style = MaterialTheme.typography.headlineMedium)
-            Text(entry.number, color = CallMemoMuted, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                text = "${TimeFormat.full(entry.startedAt)} · ${TimeFormat.duration(entry.durationSeconds)}",
-                color = CallMemoMuted,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
-
-        Spacer(Modifier.height(18.dp))
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 28.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-        ) {
-            QuickAction("Звонок", Icons.Outlined.Call) { onCall(entry.contactName, entry.number) }
-            QuickAction("СМС", Icons.AutoMirrored.Outlined.Message) {
-                openSms(context, entry.number)
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+                    .padding(bottom = 140.dp),
+            ) {
+                CallDetailBody(
+                    entry = entry,
+                    detail = detail,
+                    historyExpanded = historyExpanded,
+                    onHistoryExpandedChange = { historyExpanded = it },
+                    moreExpanded = moreExpanded,
+                    onMoreExpandedChange = { moreExpanded = it },
+                    playback = playback,
+                    onCall = onCall,
+                    onOpenCall = onOpenCall,
+                    onPlay = onPlay,
+                    onTogglePlayback = onTogglePlayback,
+                    onSeekPlayback = onSeekPlayback,
+                )
             }
-            QuickAction("Видео", Icons.Outlined.Videocam) {
-                openVideoCall(context, entry.number)
-            }
+        }
+    }
+}
+
+@Composable
+private fun CallDetailBody(
+    entry: CallLogEntry,
+    detail: CallDetail?,
+    historyExpanded: Boolean,
+    onHistoryExpandedChange: (Boolean) -> Unit,
+    moreExpanded: Boolean,
+    onMoreExpandedChange: (Boolean) -> Unit,
+    playback: PlaybackUiState,
+    onCall: (String?, String) -> Unit,
+    onOpenCall: (Long) -> Unit,
+    onPlay: (Long, String, String, String?, Long, Long) -> Unit,
+    onTogglePlayback: () -> Unit,
+    onSeekPlayback: (Long) -> Unit,
+) {
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+
+    Spacer(Modifier.height(12.dp))
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 28.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+    ) {
+        QuickAction("Звонок", Icons.Outlined.Call) { onCall(entry.contactName, entry.number) }
+        QuickAction("СМС", Icons.AutoMirrored.Outlined.Message) {
+            openSms(context, entry.number)
+        }
+        QuickAction("Видео", Icons.Outlined.Videocam) {
+            openVideoCall(context, entry.number)
+        }
+        Box {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 IconButton(
-                    onClick = { moreExpanded = true },
+                    onClick = { onMoreExpandedChange(true) },
                     modifier = Modifier
                         .size(52.dp)
                         .clip(CircleShape)
@@ -180,175 +292,180 @@ fun CallDetailRoute(
                     Icon(Icons.Outlined.MoreHoriz, contentDescription = "Ещё", tint = CallMemoBlue)
                 }
                 Text("Ещё", style = MaterialTheme.typography.bodyMedium, color = CallMemoMuted)
-                DropdownMenu(
-                    expanded = moreExpanded,
-                    onDismissRequest = { moreExpanded = false },
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Копировать номер") },
-                        onClick = {
-                            clipboard.setText(AnnotatedString(entry.number))
-                            moreExpanded = false
-                        },
-                        leadingIcon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null) },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Добавить в контакты") },
-                        onClick = {
-                            openAddContact(context, entry.contactName, entry.number)
-                            moreExpanded = false
-                        },
-                        leadingIcon = { Icon(Icons.Outlined.PersonAdd, contentDescription = null) },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Поделиться") },
-                        onClick = {
-                            shareContact(context, entry)
-                            moreExpanded = false
-                        },
-                        leadingIcon = { Icon(Icons.Outlined.Share, contentDescription = null) },
-                    )
-                }
             }
-        }
-
-        Spacer(Modifier.height(18.dp))
-        val history = detail?.history.orEmpty()
-        SectionCard(cardModifier = Modifier.padding(horizontal = 20.dp)) {
-            Text("Предыдущие звонки", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = "Всего с этим абонентом: ${history.size}",
-                color = CallMemoMuted,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Spacer(Modifier.height(10.dp))
-            val visible = if (historyExpanded) history else history.take(3)
-            visible.forEachIndexed { index, item ->
-                if (index > 0) Spacer(Modifier.height(10.dp))
-                HistoryRow(
-                    item = item,
-                    selected = item.id == entry.id,
-                    onClick = {
-                        if (item.id != entry.id) onOpenCall(item.id)
-                    },
-                )
-            }
-            if (history.size > 3) {
-                Spacer(Modifier.height(8.dp))
-                IconButton(
-                    onClick = { historyExpanded = !historyExpanded },
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                ) {
-                    Icon(
-                        imageVector = if (historyExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
-                        contentDescription = if (historyExpanded) "Свернуть" else "Показать все",
-                        tint = CallMemoBlue,
-                    )
-                }
-            }
-        }
-
-        Spacer(Modifier.height(12.dp))
-        SectionCard(cardModifier = Modifier.padding(horizontal = 20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "Расшифровка",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(
-                    onClick = {
-                        detail?.transcript?.let { clipboard.setText(AnnotatedString(it)) }
-                    },
-                ) {
-                    Icon(Icons.Outlined.ContentCopy, contentDescription = "Копировать")
-                }
-            }
-            Text(
-                text = detail?.transcript ?: "Расшифровка ещё не готова",
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (detail?.transcript == null) CallMemoMuted else CallMemoInk,
-            )
-            Spacer(Modifier.height(16.dp))
-
-            val isThisPlaying = playback.visible && playback.callId == entry.id
-            val durationMs = if (isThisPlaying) {
-                playback.durationMs.coerceAtLeast(1L)
-            } else {
-                entry.durationSeconds.coerceAtLeast(1) * 1000L
-            }
-            val positionMs = if (isThisPlaying) playback.positionMs else 0L
-            val progress = (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
-
-            fun startOrSeek(fraction: Float? = null) {
-                if (!isThisPlaying) {
-                    onPlay(
-                        entry.id,
-                        entry.contactName.orEmpty().ifBlank { entry.number },
-                        entry.number,
-                        entry.recordingUri,
-                        durationMs,
-                        entry.startedAt.toEpochMilli(),
-                    )
-                }
-                if (fraction != null) onSeekPlayback((fraction * durationMs).toLong())
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
+            DropdownMenu(
+                expanded = moreExpanded,
+                onDismissRequest = { onMoreExpandedChange(false) },
             ) {
-                IconButton(
+                DropdownMenuItem(
+                    text = { Text("Копировать номер") },
                     onClick = {
-                        if (isThisPlaying) onTogglePlayback() else startOrSeek()
+                        clipboard.setText(AnnotatedString(entry.number))
+                        onMoreExpandedChange(false)
                     },
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(CallMemoBlue),
-                ) {
-                    Icon(
-                        imageVector = if (isThisPlaying && playback.playing) {
-                            Icons.Outlined.Pause
-                        } else {
-                            Icons.Outlined.PlayArrow
-                        },
-                        contentDescription = "Слушать",
-                        tint = Color.White,
-                    )
-                }
-                Spacer(Modifier.width(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    WaveformSeek(
-                        progress = progress,
-                        amplitudes = if (isThisPlaying) playback.amplitudes else emptyList(),
-                        filledColor = CallMemoBlue,
-                        emptyColor = CallMemoBlue.copy(alpha = 0.22f),
-                        onSeekFraction = { fraction ->
-                            if (isThisPlaying) {
-                                onSeekPlayback((fraction * durationMs).toLong())
-                            } else {
-                                startOrSeek(fraction)
-                            }
-                        },
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text(
-                            TimeFormat.duration(positionMs / 1000),
-                            color = CallMemoMuted,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Text(
-                            TimeFormat.duration(durationMs / 1000),
-                            color = CallMemoMuted,
-                            style = MaterialTheme.typography.bodyMedium,
+                    leadingIcon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null) },
+                )
+                DropdownMenuItem(
+                    text = { Text("Добавить в контакты") },
+                    onClick = {
+                        openAddContact(context, entry.contactName, entry.number)
+                        onMoreExpandedChange(false)
+                    },
+                    leadingIcon = { Icon(Icons.Outlined.PersonAdd, contentDescription = null) },
+                )
+                DropdownMenuItem(
+                    text = { Text("Поделиться") },
+                    onClick = {
+                        shareContact(context, entry)
+                        onMoreExpandedChange(false)
+                    },
+                    leadingIcon = { Icon(Icons.Outlined.Share, contentDescription = null) },
+                )
+            }
+        }
+    }
+
+    Spacer(Modifier.height(18.dp))
+    val history = detail?.history.orEmpty()
+    SectionCard(cardModifier = Modifier.padding(horizontal = 20.dp)) {
+        Text("Предыдущие звонки", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "Всего с этим абонентом: ${history.size}",
+            color = CallMemoMuted,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Spacer(Modifier.height(10.dp))
+        val visible = if (historyExpanded) history else history.take(3)
+        visible.forEachIndexed { index, item ->
+            if (index > 0) Spacer(Modifier.height(10.dp))
+            HistoryRow(
+                item = item,
+                selected = item.id == entry.id,
+                onClick = {
+                    if (item.id != entry.id) onOpenCall(item.id)
+                },
+            )
+        }
+        if (history.size > 3) {
+            Spacer(Modifier.height(8.dp))
+            IconButton(
+                onClick = { onHistoryExpandedChange(!historyExpanded) },
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            ) {
+                Icon(
+                    imageVector = if (historyExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                    contentDescription = if (historyExpanded) "Свернуть" else "Показать все",
+                    tint = CallMemoBlue,
+                )
+            }
+        }
+    }
+
+    Spacer(Modifier.height(12.dp))
+    SectionCard(cardModifier = Modifier.padding(horizontal = 20.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Расшифровка",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(
+                onClick = {
+                    detail?.transcript?.let { clipboard.setText(AnnotatedString(it)) }
+                },
+            ) {
+                Icon(Icons.Outlined.ContentCopy, contentDescription = "Копировать")
+            }
+        }
+        Text(
+            text = detail?.transcript ?: "Расшифровка ещё не готова",
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (detail?.transcript == null) CallMemoMuted else CallMemoInk,
+        )
+        Spacer(Modifier.height(16.dp))
+
+        val isThisPlaying = playback.visible && playback.callId == entry.id
+        val durationMs = if (isThisPlaying) {
+            playback.durationMs.coerceAtLeast(1L)
+        } else {
+            entry.durationSeconds.coerceAtLeast(1) * 1000L
+        }
+        val positionMs = if (isThisPlaying) playback.positionMs else 0L
+        val progress = (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(
+                onClick = {
+                    if (isThisPlaying) {
+                        onTogglePlayback()
+                    } else {
+                        onPlay(
+                            entry.id,
+                            entry.contactName.orEmpty().ifBlank { entry.number },
+                            entry.number,
+                            entry.recordingUri,
+                            durationMs,
+                            entry.startedAt.toEpochMilli(),
                         )
                     }
+                },
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(CallMemoBlue),
+            ) {
+                Icon(
+                    imageVector = if (isThisPlaying && playback.playing) {
+                        Icons.Outlined.Pause
+                    } else {
+                        Icons.Outlined.PlayArrow
+                    },
+                    contentDescription = "Слушать",
+                    tint = Color.White,
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                WaveformSeek(
+                    progress = progress,
+                    amplitudes = if (isThisPlaying) playback.amplitudes else emptyList(),
+                    filledColor = CallMemoBlue,
+                    emptyColor = CallMemoBlue.copy(alpha = 0.22f),
+                    onSeekFraction = { fraction ->
+                        if (isThisPlaying) {
+                            onSeekPlayback((fraction * durationMs).toLong())
+                        } else {
+                            onPlay(
+                                entry.id,
+                                entry.contactName.orEmpty().ifBlank { entry.number },
+                                entry.number,
+                                entry.recordingUri,
+                                durationMs,
+                                entry.startedAt.toEpochMilli(),
+                            )
+                            onSeekPlayback((fraction * durationMs).toLong())
+                        }
+                    },
+                )
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        TimeFormat.duration(positionMs / 1000),
+                        color = CallMemoMuted,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        TimeFormat.duration(durationMs / 1000),
+                        color = CallMemoMuted,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
                 }
             }
         }

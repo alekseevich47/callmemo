@@ -1,6 +1,5 @@
 package com.alekseevich47.callmemo.ui.components
 
-import android.os.Build
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -13,6 +12,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -43,11 +43,13 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -127,9 +129,14 @@ fun SearchField(
 }
 
 @Composable
-fun AvatarCircle(label: String, color: Color = CallMemoBlue, size: androidx.compose.ui.unit.Dp = 48.dp) {
+fun AvatarCircle(
+    label: String,
+    color: Color = CallMemoBlue,
+    size: androidx.compose.ui.unit.Dp = 48.dp,
+    modifier: Modifier = Modifier,
+) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .size(size)
             .clip(CircleShape)
             .background(color.copy(alpha = 0.15f)),
@@ -155,39 +162,31 @@ private fun tabIcon(destination: TopLevelDestination): ImageVector = when (desti
 fun GlassBottomBar(
     current: TopLevelDestination,
     onSelect: (TopLevelDestination) -> Unit,
+    hazeState: dev.chrisbanes.haze.HazeState,
     barModifier: Modifier = Modifier,
 ) {
-    val plateShape = RoundedCornerShape(28.dp)
+    val plateShape = RoundedCornerShape(LiquidGlassTokens.DefaultCorner)
     Box(
         modifier = barModifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp),
         contentAlignment = Alignment.Center,
     ) {
-        // Frosted glass plate: translucent white + soft blur wash behind crisp icons.
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .clip(plateShape)
-                .background(Color.White.copy(alpha = 0.34f))
-                .then(if (Build.VERSION.SDK_INT >= 31) Modifier.blur(16.dp) else Modifier)
-                .background(Color.White.copy(alpha = 0.28f)),
-        )
-        Row(
-            modifier = Modifier
-                .background(Color.White.copy(alpha = 0.58f), plateShape)
-                .border(width = 0.8.dp, color = Color.White.copy(alpha = 0.92f), shape = plateShape)
-                .padding(horizontal = 6.dp, vertical = 5.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TopLevelDestination.entries.forEach { dest ->
-                GlassTabChip(
-                    label = dest.label,
-                    icon = tabIcon(dest),
-                    selected = dest == current,
-                    onClick = { onSelect(dest) },
-                )
+        // Single tight glass plate wrapping chips only (no full-width underlay).
+        LiquidGlassPlate(hazeState = hazeState, shape = plateShape) {
+            Row(
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TopLevelDestination.entries.forEach { dest ->
+                    GlassTabChip(
+                        label = dest.label,
+                        icon = tabIcon(dest),
+                        selected = dest == current,
+                        onClick = { onSelect(dest) },
+                    )
+                }
             }
         }
     }
@@ -241,26 +240,13 @@ fun InfoCircleButton(
     onClick: () -> Unit,
     contentDescription: String = "Подробнее",
 ) {
-    Box(
-        modifier = Modifier
-            .size(40.dp)
-            .clip(CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(22.dp)
-                .border(1.dp, CallMemoMuted.copy(alpha = 0.7f), CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Info,
-                contentDescription = contentDescription,
-                tint = CallMemoMuted,
-                modifier = Modifier.size(14.dp),
-            )
-        }
+    IconButton(onClick = onClick, modifier = Modifier.size(36.dp)) {
+        Icon(
+            imageVector = Icons.Outlined.Info,
+            contentDescription = contentDescription,
+            tint = CallMemoMuted,
+            modifier = Modifier.size(20.dp),
+        )
     }
 }
 
@@ -282,6 +268,7 @@ fun StickyPlayerBar(
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
 
+    var dismissing by remember { mutableStateOf(false) }
     BoxWithConstraints(modifier = barModifier.fillMaxWidth()) {
         val widthPx = with(density) { maxWidth.toPx() }.coerceAtLeast(1f)
         Row(
@@ -289,16 +276,18 @@ fun StickyPlayerBar(
                 .fillMaxWidth()
                 .padding(horizontal = 14.dp)
                 .offset { IntOffset(offsetX.value.roundToInt(), 0) }
-                .pointerInput(widthPx) {
+                .pointerInput(widthPx, dismissing) {
+                    if (dismissing) return@pointerInput
                     detectHorizontalDragGestures(
                         onDragEnd = {
                             scope.launch {
                                 val hidden = abs(offsetX.value) / widthPx
                                 if (hidden >= 0.5f) {
+                                    dismissing = true
                                     val target = if (offsetX.value >= 0f) widthPx else -widthPx
                                     offsetX.animateTo(target, spring(stiffness = Spring.StiffnessMedium))
+                                    // Do not snapTo(0) — avoids flash before parent removes the bar.
                                     onDismiss()
-                                    offsetX.snapTo(0f)
                                 } else {
                                     offsetX.animateTo(
                                         0f,
@@ -440,7 +429,7 @@ private fun speedLabel(speed: Float): String = when (speed) {
 @Composable
 fun SectionCard(
     cardModifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(
         modifier = cardModifier
@@ -448,9 +437,8 @@ fun SectionCard(
             .clip(RoundedCornerShape(20.dp))
             .background(Color.White)
             .padding(16.dp),
-    ) {
-        content()
-    }
+        content = content,
+    )
 }
 
 /**

@@ -97,6 +97,7 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.5.0")
     implementation("androidx.media3:media3-ui:1.5.0")
     implementation("com.google.accompanist:accompanist-permissions:0.36.0")
+    implementation("dev.chrisbanes.haze:haze:1.5.2")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

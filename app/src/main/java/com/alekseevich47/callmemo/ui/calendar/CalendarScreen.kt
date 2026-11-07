@@ -25,7 +25,6 @@ import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -52,6 +51,8 @@ import androidx.lifecycle.viewModelScope
 import com.alekseevich47.callmemo.data.repository.CallMemoRepository
 import com.alekseevich47.callmemo.domain.model.CalendarItem
 import com.alekseevich47.callmemo.domain.model.CalendarItemType
+import com.alekseevich47.callmemo.ui.components.CallMemoDatePickerModal
+import com.alekseevich47.callmemo.ui.components.ChromeFab
 import com.alekseevich47.callmemo.ui.components.ScreenHeader
 import com.alekseevich47.callmemo.ui.components.SectionCard
 import com.alekseevich47.callmemo.ui.theme.CallMemoBlue
@@ -111,8 +112,10 @@ fun CalendarRoute(
     val selected = LocalDate.parse(selectedDay)
     val dayItems = items.filter { it.startsAt.toLocalDate() == selected }
     var showDialog by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
     var eventTitle by remember { mutableStateOf("") }
     var eventNotes by remember { mutableStateOf("") }
+    var eventDay by remember { mutableStateOf(LocalDate.now()) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -152,27 +155,23 @@ fun CalendarRoute(
                 }
             }
         }
-        FloatingActionButton(
+        ChromeFab(
             onClick = {
                 eventTitle = ""
                 eventNotes = ""
+                eventDay = selected
                 showDialog = true
             },
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 22.dp, bottom = com.alekseevich47.callmemo.ui.components.ChromeFabBottomPadding),
-            shape = CircleShape,
-            containerColor = CallMemoBlue,
-            contentColor = Color.White,
-        ) {
-            Icon(Icons.Outlined.Add, contentDescription = "Добавить")
-        }
+            icon = Icons.Outlined.Add,
+            contentDescription = "Добавить",
+            modifier = Modifier.align(Alignment.BottomEnd),
+        )
     }
 
     if (showDialog) {
         AlertDialog(
             onDismissRequest = { showDialog = false },
-            title = { Text("Событие на ${dayTitle(selected)}") },
+            title = { Text("Новое событие") },
             text = {
                 Column {
                     OutlinedTextField(
@@ -183,6 +182,10 @@ fun CalendarRoute(
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = { showDatePicker = true }) {
+                        Text("Дата: ${dayTitle(eventDay)}", color = CallMemoBlue)
+                    }
+                    Spacer(Modifier.height(4.dp))
                     OutlinedTextField(
                         value = eventNotes,
                         onValueChange = { eventNotes = it },
@@ -195,7 +198,9 @@ fun CalendarRoute(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        viewModel.addEvent(eventTitle, eventNotes, selected)
+                        viewModel.addEvent(eventTitle, eventNotes, eventDay)
+                        selectedDay = eventDay.toString()
+                        month = YearMonth.from(eventDay).toString()
                         showDialog = false
                     },
                 ) { Text("Сохранить") }
@@ -205,6 +210,16 @@ fun CalendarRoute(
             },
         )
     }
+
+    CallMemoDatePickerModal(
+        visible = showDatePicker,
+        onDismiss = { showDatePicker = false },
+        initialDate = eventDay,
+        onConfirm = { date ->
+            eventDay = date
+            showDatePicker = false
+        },
+    )
 }
 
 @Composable

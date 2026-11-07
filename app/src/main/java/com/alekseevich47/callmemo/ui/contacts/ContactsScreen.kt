@@ -13,18 +13,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.PersonAdd
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -33,9 +29,9 @@ import androidx.lifecycle.viewModelScope
 import com.alekseevich47.callmemo.data.repository.CallMemoRepository
 import com.alekseevich47.callmemo.domain.model.ContactItem
 import com.alekseevich47.callmemo.ui.components.AvatarCircle
+import com.alekseevich47.callmemo.ui.components.ChromeFab
 import com.alekseevich47.callmemo.ui.components.ScreenHeader
 import com.alekseevich47.callmemo.ui.components.SearchField
-import com.alekseevich47.callmemo.ui.theme.CallMemoBlue
 import com.alekseevich47.callmemo.ui.theme.CallMemoMuted
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -101,16 +97,11 @@ fun ContactsRoute(
                 }
             }
         }
-        FloatingActionButton(
+        ChromeFab(
             onClick = {},
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 22.dp, bottom = com.alekseevich47.callmemo.ui.components.ChromeFabBottomPadding),
-            shape = CircleShape,
-            containerColor = CallMemoBlue,
-            contentColor = Color.White,
-        ) {
-            Icon(Icons.Outlined.PersonAdd, contentDescription = "Добавить контакт")
-        }
+            icon = Icons.Outlined.PersonAdd,
+            contentDescription = "Добавить контакт",
+            modifier = Modifier.align(Alignment.BottomEnd),
+        )
     }
 }
