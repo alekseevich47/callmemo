@@ -1,5 +1,8 @@
 package com.alekseevich47.callmemo.ui.calls
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -12,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,9 +32,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -41,17 +45,16 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.alekseevich47.callmemo.ui.theme.CallMemoBlue
 import com.alekseevich47.callmemo.ui.theme.CallMemoInk
 import com.alekseevich47.callmemo.ui.theme.CallMemoMuted
 import kotlin.math.max
+import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
-/**
- * Opaque dialpad sheet (~58% screen). Bottom padding reserves chrome so keys sit above
- * floating tabs/player while the sheet fills behind them.
- */
 @Composable
 fun DialpadSheet(
     visible: Boolean,
@@ -68,8 +71,9 @@ fun DialpadSheet(
         if (initialNumber.isNotEmpty()) number = initialNumber
     }
 
-    var dragY by remember { mutableFloatStateOf(0f) }
     val density = LocalDensity.current
+    val offsetY = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
 
     BoxWithConstraints(modifier = sheetModifier.fillMaxWidth()) {
         val minSheetPx = with(density) { 420.dp.toPx() }
@@ -82,20 +86,39 @@ fun DialpadSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(sheetHeight)
+                .offset { IntOffset(0, offsetY.value.roundToInt()) }
                 .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
                 .background(Color.White)
                 .padding(bottomContentPadding)
                 .padding(horizontal = 12.dp)
-                .pointerInput(Unit) {
+                .pointerInput(sheetHeightPx) {
                     detectVerticalDragGestures(
                         onDragEnd = {
-                            if (dragY > with(density) { 72.dp.toPx() }) onDismiss()
-                            dragY = 0f
+                            scope.launch {
+                                val hidden = offsetY.value / sheetHeightPx
+                                if (hidden >= 0.5f) {
+                                    offsetY.animateTo(
+                                        sheetHeightPx,
+                                        spring(stiffness = Spring.StiffnessMedium),
+                                    )
+                                    onDismiss()
+                                    offsetY.snapTo(0f)
+                                } else {
+                                    offsetY.animateTo(
+                                        0f,
+                                        spring(
+                                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                                            stiffness = Spring.StiffnessMediumLow,
+                                        ),
+                                    )
+                                }
+                            }
                         },
                         onVerticalDrag = { change, amount ->
                             change.consume()
-                            if (amount > 0f) dragY += amount
-                            else dragY = (dragY + amount).coerceAtLeast(0f)
+                            scope.launch {
+                                offsetY.snapTo((offsetY.value + amount).coerceAtLeast(0f))
+                            }
                         },
                     )
                 },
@@ -104,8 +127,7 @@ fun DialpadSheet(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 10.dp, bottom = 6.dp)
-                    .clickable(onClick = onDismiss),
+                    .padding(top = 10.dp, bottom = 6.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Box(

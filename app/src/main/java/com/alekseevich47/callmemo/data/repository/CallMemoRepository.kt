@@ -38,7 +38,11 @@ class CallMemoRepository @Inject constructor(
     fun hasCallLogPermission(): Boolean = systemCallLog.hasPermission()
     fun hasContactsPermission(): Boolean = systemContacts.hasPermission()
 
-    fun observeCalls(query: String): Flow<List<CallLogEntry>> = systemCallLog.observeCalls(query)
+    fun observeCalls(
+        query: String,
+        fromEpochMs: Long? = null,
+        toEpochMs: Long? = null,
+    ): Flow<List<CallLogEntry>> = systemCallLog.observeCalls(query, fromEpochMs, toEpochMs)
 
     fun observeContacts(query: String): Flow<List<ContactItem>> = systemContacts.observeContacts(query)
 

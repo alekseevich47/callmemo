@@ -1,5 +1,6 @@
 package com.alekseevich47.callmemo.ui.components
 
+import android.os.Build
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -42,11 +43,11 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -101,6 +102,7 @@ fun SearchField(
     onValueChange: (String) -> Unit,
     placeholder: String,
     fieldModifier: Modifier = Modifier,
+    trailingIcon: (@Composable () -> Unit)? = null,
 ) {
     TextField(
         value = value,
@@ -111,6 +113,7 @@ fun SearchField(
             .clip(RoundedCornerShape(18.dp)),
         placeholder = { Text(placeholder, color = CallMemoMuted) },
         leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, tint = CallMemoMuted) },
+        trailingIcon = trailingIcon,
         singleLine = true,
         colors = TextFieldDefaults.colors(
             focusedContainerColor = Color.White,
@@ -124,10 +127,10 @@ fun SearchField(
 }
 
 @Composable
-fun AvatarCircle(label: String, color: Color = CallMemoBlue) {
+fun AvatarCircle(label: String, color: Color = CallMemoBlue, size: androidx.compose.ui.unit.Dp = 48.dp) {
     Box(
         modifier = Modifier
-            .size(48.dp)
+            .size(size)
             .clip(CircleShape)
             .background(color.copy(alpha = 0.15f)),
         contentAlignment = Alignment.Center,
@@ -148,10 +151,6 @@ private fun tabIcon(destination: TopLevelDestination): ImageVector = when (desti
     TopLevelDestination.NOTES -> Icons.Outlined.NoteAlt
 }
 
-/**
- * Near-transparent glass plate under rounded tab chips.
- * Active tab: icon/label color only; press ripple follows rounded corners.
- */
 @Composable
 fun GlassBottomBar(
     current: TopLevelDestination,
@@ -165,10 +164,19 @@ fun GlassBottomBar(
             .padding(horizontal = 16.dp, vertical = 4.dp),
         contentAlignment = Alignment.Center,
     ) {
+        // Frosted glass plate: translucent white + soft blur wash behind crisp icons.
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clip(plateShape)
+                .background(Color.White.copy(alpha = 0.34f))
+                .then(if (Build.VERSION.SDK_INT >= 31) Modifier.blur(16.dp) else Modifier)
+                .background(Color.White.copy(alpha = 0.28f)),
+        )
         Row(
             modifier = Modifier
-                .background(Color.White.copy(alpha = 0.18f), plateShape)
-                .border(width = 0.7.dp, color = Color.White.copy(alpha = 0.55f), shape = plateShape)
+                .background(Color.White.copy(alpha = 0.58f), plateShape)
+                .border(width = 0.8.dp, color = Color.White.copy(alpha = 0.92f), shape = plateShape)
                 .padding(horizontal = 6.dp, vertical = 5.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -233,11 +241,10 @@ fun InfoCircleButton(
     onClick: () -> Unit,
     contentDescription: String = "Подробнее",
 ) {
-    val shape = CircleShape
     Box(
         modifier = Modifier
             .size(40.dp)
-            .clip(shape)
+            .clip(CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -257,6 +264,7 @@ fun InfoCircleButton(
     }
 }
 
+/** Compact sticky player (~half previous height). */
 @Composable
 fun StickyPlayerBar(
     state: PlaybackUiState,
@@ -269,14 +277,14 @@ fun StickyPlayerBar(
 ) {
     val duration = state.durationMs.coerceAtLeast(1L)
     val progress = (state.positionMs.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
-    val shape = RoundedCornerShape(20.dp)
+    val shape = RoundedCornerShape(18.dp)
     val offsetX = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
 
     BoxWithConstraints(modifier = barModifier.fillMaxWidth()) {
         val widthPx = with(density) { maxWidth.toPx() }.coerceAtLeast(1f)
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 14.dp)
@@ -286,7 +294,7 @@ fun StickyPlayerBar(
                         onDragEnd = {
                             scope.launch {
                                 val hidden = abs(offsetX.value) / widthPx
-                                if (hidden >= 0.6f) {
+                                if (hidden >= 0.5f) {
                                     val target = if (offsetX.value >= 0f) widthPx else -widthPx
                                     offsetX.animateTo(target, spring(stiffness = Spring.StiffnessMedium))
                                     onDismiss()
@@ -304,74 +312,63 @@ fun StickyPlayerBar(
                         },
                         onHorizontalDrag = { change, dragAmount ->
                             change.consume()
-                            scope.launch {
-                                offsetX.snapTo(offsetX.value + dragAmount)
-                            }
+                            scope.launch { offsetX.snapTo(offsetX.value + dragAmount) }
                         },
                     )
                 }
                 .background(CallMemoInk, shape)
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            IconButton(onClick = onToggle, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    imageVector = if (state.playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
+                    contentDescription = if (state.playing) "Пауза" else "Играть",
+                    tint = Color.White,
+                )
+            }
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
+                    .weight(1f)
                     .clickable(onClick = onOpenDetail),
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = state.contactName.ifBlank { state.number },
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                WaveformSeek(
+                    progress = progress,
+                    amplitudes = state.amplitudes,
+                    filledColor = CallMemoBlue,
+                    emptyColor = Color.White.copy(alpha = 0.25f),
+                    barHeight = 22.dp,
+                    onSeekFraction = { fraction -> onSeek((fraction * duration).toLong()) },
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
                     Text(
-                        text = state.contactName.ifBlank { state.number },
-                        color = Color.White,
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        text = TimeFormat.duration(state.positionMs / 1000),
+                        color = Color.White.copy(alpha = 0.65f),
+                        style = MaterialTheme.typography.labelSmall,
                     )
                     Text(
-                        text = state.number,
-                        color = Color.White.copy(alpha = 0.7f),
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                TextButton(onClick = onCycleSpeed) {
-                    Text(
-                        text = speedLabel(state.speed),
-                        color = Color.White,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-                IconButton(onClick = onToggle) {
-                    Icon(
-                        imageVector = if (state.playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
-                        contentDescription = if (state.playing) "Пауза" else "Играть",
-                        tint = Color.White,
+                        text = TimeFormat.duration(state.durationMs / 1000),
+                        color = Color.White.copy(alpha = 0.65f),
+                        style = MaterialTheme.typography.labelSmall,
                     )
                 }
             }
-            Spacer(Modifier.height(8.dp))
-            WaveformSeek(
-                progress = progress,
-                filledColor = CallMemoBlue,
-                emptyColor = Color.White.copy(alpha = 0.25f),
-                onSeekFraction = { fraction -> onSeek((fraction * duration).toLong()) },
-            )
-            Spacer(Modifier.height(6.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
+            TextButton(onClick = onCycleSpeed, modifier = Modifier.padding(start = 2.dp)) {
                 Text(
-                    text = TimeFormat.duration(state.positionMs / 1000),
-                    color = Color.White.copy(alpha = 0.7f),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    text = TimeFormat.duration(state.durationMs / 1000),
-                    color = Color.White.copy(alpha = 0.7f),
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = speedLabel(state.speed),
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp,
                 )
             }
         }
@@ -382,21 +379,24 @@ fun StickyPlayerBar(
 fun WaveformSeek(
     progress: Float,
     onSeekFraction: (Float) -> Unit,
+    amplitudes: List<Float> = emptyList(),
     filledColor: Color = CallMemoBlue,
     emptyColor: Color = CallMemoBlue.copy(alpha = 0.25f),
+    barHeight: androidx.compose.ui.unit.Dp = 36.dp,
     barModifier: Modifier = Modifier,
 ) {
-    val bars = remember {
+    val fallbackBars = remember {
         listOf(
             0.35f, 0.55f, 0.4f, 0.75f, 0.5f, 0.9f, 0.45f, 0.7f, 0.6f, 0.85f,
             0.4f, 0.65f, 0.95f, 0.5f, 0.72f, 0.38f, 0.8f, 0.55f, 0.68f, 0.42f,
             0.77f, 0.5f, 0.62f, 0.88f, 0.47f, 0.7f, 0.58f, 0.82f, 0.44f, 0.66f,
         )
     }
+    val bars = amplitudes.ifEmpty { fallbackBars }
     Box(
         modifier = barModifier
             .fillMaxWidth()
-            .height(36.dp)
+            .height(barHeight)
             .pointerInput(Unit) {
                 detectHorizontalDragGestures(
                     onDragStart = { offset ->
@@ -416,11 +416,12 @@ fun WaveformSeek(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             bars.forEachIndexed { index, amp ->
-                val filled = index <= (progress * (bars.lastIndex)).roundToInt()
+                val filled = index <= (progress * (bars.lastIndex.coerceAtLeast(1))).roundToInt()
+                val h = (barHeight.value * (0.25f + amp * 0.75f)).dp
                 Spacer(
                     modifier = Modifier
                         .weight(1f)
-                        .height((12 + amp * 22).dp)
+                        .height(h)
                         .clip(RoundedCornerShape(3.dp))
                         .background(if (filled) filledColor else emptyColor),
                 )
@@ -451,3 +452,6 @@ fun SectionCard(
         content()
     }
 }
+
+/** Shared FAB bottom inset above glass tabs (aligned across tabs). */
+val ChromeFabBottomPadding = 88.dp

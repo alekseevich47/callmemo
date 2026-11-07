@@ -29,6 +29,7 @@ class MainActivity : ComponentActivity() {
     private var telecomName by mutableStateOf<String?>(null)
     private var telecomNumber by mutableStateOf<String?>(null)
     private var telecomDirection by mutableStateOf<String?>(null)
+    private var openCallId by mutableStateOf<Long?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,6 +45,7 @@ class MainActivity : ComponentActivity() {
                         telecomName = telecomName,
                         telecomNumber = telecomNumber,
                         telecomDirection = telecomDirection,
+                        openCallDetailId = openCallId,
                     )
                 }
             }
@@ -70,6 +72,9 @@ class MainActivity : ComponentActivity() {
                 telecomNumber = intent.getStringExtra(EXTRA_NUMBER)
                 telecomDirection = intent.getStringExtra(EXTRA_DIRECTION)
             }
+            ACTION_OPEN_CALL_DETAIL -> {
+                openCallId = intent.getLongExtra(EXTRA_CALL_ID, -1L).takeIf { it > 0 }
+            }
             Intent.ACTION_DIAL, Intent.ACTION_VIEW, Intent.ACTION_CALL_BUTTON -> {
                 dialNumber = extractTel(intent.data) ?: intent.getStringExtra(Intent.EXTRA_PHONE_NUMBER)
             }
@@ -90,8 +95,10 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val ACTION_SHOW_INCOMING = "com.alekseevich47.callmemo.SHOW_INCOMING"
         const val ACTION_SHOW_IN_CALL = "com.alekseevich47.callmemo.SHOW_IN_CALL"
+        const val ACTION_OPEN_CALL_DETAIL = "com.alekseevich47.callmemo.OPEN_CALL_DETAIL"
         const val EXTRA_NUMBER = "extra_number"
         const val EXTRA_NAME = "extra_name"
         const val EXTRA_DIRECTION = "extra_direction"
+        const val EXTRA_CALL_ID = "extra_call_id"
     }
 }

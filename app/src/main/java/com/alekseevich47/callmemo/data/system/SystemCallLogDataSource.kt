@@ -30,9 +30,19 @@ class SystemCallLogDataSource @Inject constructor(
         ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) ==
             PackageManager.PERMISSION_GRANTED
 
-    fun observeCalls(query: String = ""): Flow<List<CallLogEntry>> = callbackFlow {
+    fun observeCalls(
+        query: String = "",
+        fromEpochMs: Long? = null,
+        toEpochMs: Long? = null,
+    ): Flow<List<CallLogEntry>> = callbackFlow {
         val emitNow = {
-            trySend(if (hasPermission()) readCalls(query) else emptyList())
+            trySend(
+                if (hasPermission()) {
+                    readCalls(query = query, fromEpochMs = fromEpochMs, toEpochMs = toEpochMs)
+                } else {
+                    emptyList()
+                },
+            )
         }
         emitNow()
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
@@ -83,6 +93,8 @@ class SystemCallLogDataSource @Inject constructor(
         query: String = "",
         numberFilter: String? = null,
         idFilter: Long? = null,
+        fromEpochMs: Long? = null,
+        toEpochMs: Long? = null,
     ): List<CallLogEntry> {
         val projection = arrayOf(
             CallLog.Calls._ID,
@@ -101,6 +113,14 @@ class SystemCallLogDataSource @Inject constructor(
         if (!numberFilter.isNullOrBlank()) {
             selectionParts += "${CallLog.Calls.NUMBER}=?"
             args += numberFilter
+        }
+        if (fromEpochMs != null) {
+            selectionParts += "${CallLog.Calls.DATE}>=?"
+            args += fromEpochMs.toString()
+        }
+        if (toEpochMs != null) {
+            selectionParts += "${CallLog.Calls.DATE}<=?"
+            args += toEpochMs.toString()
         }
         val trimmed = query.trim()
         if (trimmed.isNotEmpty() && numberFilter == null && idFilter == null) {

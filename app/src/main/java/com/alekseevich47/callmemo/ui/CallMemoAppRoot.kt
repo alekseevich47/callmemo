@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
@@ -44,11 +45,13 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.alekseevich47.callmemo.domain.model.CallDirection
+import com.alekseevich47.callmemo.player.ProximityPlaybackEffect
 import com.alekseevich47.callmemo.telecom.DialerRoleHelper
 import com.alekseevich47.callmemo.ui.calendar.CalendarRoute
 import com.alekseevich47.callmemo.ui.calls.CallDetailRoute
 import com.alekseevich47.callmemo.ui.calls.CallsRoute
 import com.alekseevich47.callmemo.ui.calls.DialpadSheet
+import com.alekseevich47.callmemo.ui.components.ChromeFabBottomPadding
 import com.alekseevich47.callmemo.ui.components.GlassBottomBar
 import com.alekseevich47.callmemo.ui.components.StickyPlayerBar
 import com.alekseevich47.callmemo.ui.contacts.ContactsRoute
@@ -76,6 +79,7 @@ fun CallMemoAppRoot(
     telecomName: String? = null,
     telecomNumber: String? = null,
     telecomDirection: String? = null,
+    openCallDetailId: Long? = null,
     dialerRoleHelper: DialerRoleHelper? = null,
 ) {
     val navController = rememberNavController()
@@ -86,6 +90,7 @@ fun CallMemoAppRoot(
 
     var dialpadOpen by rememberSaveable { mutableStateOf(false) }
     var dialpadSeed by rememberSaveable { mutableStateOf("") }
+    var dialFabVisible by rememberSaveable { mutableStateOf(true) }
 
     val permissionState = rememberMultiplePermissionsState(
         permissions = buildList {
@@ -124,39 +129,56 @@ fun CallMemoAppRoot(
         }
     }
 
+    LaunchedEffect(openCallDetailId) {
+        openCallDetailId?.let { id ->
+            navController.navigate(Routes.callDetail(id))
+        }
+    }
+
     LaunchedEffect(telecomAction, telecomNumber) {
         when (telecomAction) {
             "incoming" -> {
                 val name = telecomName ?: telecomNumber.orEmpty()
                 val number = telecomNumber.orEmpty()
-                if (number.isNotBlank()) {
-                    navController.navigate(Routes.incoming(name, number))
-                }
+                if (number.isNotBlank()) navController.navigate(Routes.incoming(name, number))
             }
             "in_call" -> {
                 val name = telecomName ?: telecomNumber.orEmpty()
                 val number = telecomNumber.orEmpty()
                 val direction = telecomDirection ?: CallDirection.OUTGOING.name
-                if (number.isNotBlank()) {
-                    navController.navigate(Routes.inCall(name, number, direction))
-                }
+                if (number.isNotBlank()) navController.navigate(Routes.inCall(name, number, direction))
             }
         }
     }
 
+    ProximityPlaybackEffect(active = player.visible && player.playing) { near ->
+        playerViewModel.setEarpiece(near)
+    }
+
     val topLevel = TopLevelDestination.entries.firstOrNull { route == it.route }
     val inCallChrome = route.startsWith("in_call") || route.startsWith("incoming")
-    val hideTabs = inCallChrome || route == Routes.SETTINGS || route.startsWith("call_detail")
+    val onCallDetail = route.startsWith("call_detail")
+    val detailCallId = if (onCallDetail) backStack?.arguments?.getLong("callId") else null
+    val onPlayingDetail = player.visible && detailCallId != null && detailCallId == player.callId
+
+    val hideTabs = inCallChrome || route == Routes.SETTINGS || onCallDetail
     val showOverlayChrome = !inCallChrome
     val showTabs = topLevel != null && !hideTabs
-    val showPlayer = showOverlayChrome && player.visible && route != Routes.SETTINGS
-    val showDialFab = topLevel == TopLevelDestination.CALLS && !dialpadOpen && !inCallChrome
-    // Keep chrome block mounted as one unit so tabs/FAB/player don't pop in ahead of content.
-    val showBottomChrome = showOverlayChrome && (showTabs || showPlayer)
+    // Sticky bar only outside the detail of the recording being played.
+    val showPlayer = showOverlayChrome &&
+        player.visible &&
+        !onPlayingDetail &&
+        route != Routes.SETTINGS
+    val showDialFab = topLevel == TopLevelDestination.CALLS &&
+        !dialpadOpen &&
+        !inCallChrome &&
+        dialFabVisible
 
     val tabsReserve = if (showTabs) 78.dp else 0.dp
-    val playerReserve = if (showPlayer) 124.dp else 0.dp
+    val playerReserve = if (showPlayer && !dialpadOpen) 64.dp else 0.dp
     val chromeBottom = tabsReserve + playerReserve + 12.dp
+    // Dialpad sits over the player; only reserve tab chrome under the sheet.
+    val dialpadBottomPad = tabsReserve + 12.dp
 
     fun placeCall(name: String?, number: String) {
         val dial = PhoneNumberUtils.normalizeForDial(number)
@@ -180,6 +202,7 @@ fun CallMemoAppRoot(
 
     fun selectTab(dest: TopLevelDestination) {
         dialpadOpen = false
+        dialFabVisible = dest == TopLevelDestination.CALLS
         navController.navigate(dest.route) {
             popUpTo(TopLevelDestination.CALLS.route) { saveState = true }
             launchSingleTop = true
@@ -204,12 +227,11 @@ fun CallMemoAppRoot(
                     onOpenDetail = { id -> navController.navigate(Routes.callDetail(id)) },
                     onCallNumber = { name, number -> placeCall(name, number) },
                     listBottomPadding = chromeBottom + 72.dp,
-                    hasCallLogPermission = permissionState.permissions
-                        .any {
-                            it.permission == Manifest.permission.READ_CALL_LOG &&
-                                it.status.isGranted
-                        },
+                    hasCallLogPermission = permissionState.permissions.any {
+                        it.permission == Manifest.permission.READ_CALL_LOG && it.status.isGranted
+                    },
                     onRequestPermissions = { permissionState.launchMultiplePermissionRequest() },
+                    onScrollFabVisible = { visible -> dialFabVisible = visible },
                 )
             }
             composable(TopLevelDestination.CONTACTS.route) {
@@ -310,76 +332,85 @@ fun CallMemoAppRoot(
             }
         }
 
+        // Player under dialpad sheet.
+        AnimatedVisibility(
+            visible = showPlayer,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .zIndex(1f)
+                .navigationBarsPadding()
+                .padding(bottom = if (showTabs) 82.dp else 8.dp),
+            enter = fadeIn() + slideInVertically { it / 2 },
+            exit = fadeOut() + slideOutVertically { it / 2 },
+        ) {
+            StickyPlayerBar(
+                state = player,
+                onToggle = playerViewModel::toggle,
+                onSeek = playerViewModel::seekTo,
+                onCycleSpeed = playerViewModel::cycleSpeed,
+                onOpenDetail = {
+                    player.callId?.let { id -> navController.navigate(Routes.callDetail(id)) }
+                },
+                onDismiss = playerViewModel::hide,
+            )
+        }
+
         AnimatedVisibility(
             visible = dialpadOpen,
-            modifier = Modifier.align(Alignment.BottomCenter),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .zIndex(3f),
             enter = slideInVertically { it } + fadeIn(),
             exit = slideOutVertically { it } + fadeOut(),
         ) {
             DialpadSheet(
                 visible = true,
-                bottomContentPadding = PaddingValues(bottom = chromeBottom),
+                bottomContentPadding = PaddingValues(bottom = dialpadBottomPad),
                 initialNumber = dialpadSeed,
                 onDismiss = { dialpadOpen = false },
                 onCall = { number -> placeCall(null, number) },
             )
         }
 
-        // Single chrome layer — tabs + player (+ FAB sibling) share the same visibility gate.
-        androidx.compose.animation.AnimatedVisibility(
-            visible = showBottomChrome || showDialFab,
-            modifier = Modifier.align(Alignment.BottomCenter),
+        AnimatedVisibility(
+            visible = showTabs,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .zIndex(2f)
+                .navigationBarsPadding()
+                .padding(bottom = 4.dp),
             enter = fadeIn(),
             exit = fadeOut(),
         ) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                if (showBottomChrome) {
-                    Column(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .navigationBarsPadding()
-                            .padding(bottom = 4.dp),
-                    ) {
-                        if (showPlayer) {
-                            StickyPlayerBar(
-                                state = player,
-                                onToggle = playerViewModel::toggle,
-                                onSeek = playerViewModel::seekTo,
-                                onCycleSpeed = playerViewModel::cycleSpeed,
-                                onOpenDetail = {
-                                    player.callId?.let { id ->
-                                        navController.navigate(Routes.callDetail(id))
-                                    }
-                                },
-                                onDismiss = playerViewModel::hide,
-                                barModifier = Modifier.padding(bottom = 8.dp),
-                            )
-                        }
-                        if (showTabs) {
-                            GlassBottomBar(
-                                current = topLevel!!,
-                                onSelect = ::selectTab,
-                            )
-                        }
-                    }
-                }
-                if (showDialFab) {
-                    FloatingActionButton(
-                        onClick = {
-                            dialpadSeed = ""
-                            dialpadOpen = true
-                        },
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .navigationBarsPadding()
-                            .padding(end = 22.dp, bottom = chromeBottom + 8.dp),
-                        shape = CircleShape,
-                        containerColor = CallMemoBlue,
-                        contentColor = Color.White,
-                    ) {
-                        Icon(Icons.Outlined.Dialpad, contentDescription = "Набор номера")
-                    }
-                }
+            GlassBottomBar(
+                current = topLevel!!,
+                onSelect = ::selectTab,
+            )
+        }
+
+        AnimatedVisibility(
+            visible = showDialFab,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .zIndex(2f)
+                .navigationBarsPadding()
+                .padding(
+                    end = 22.dp,
+                    bottom = if (showPlayer) ChromeFabBottomPadding + 56.dp else ChromeFabBottomPadding - 6.dp,
+                ),
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            FloatingActionButton(
+                onClick = {
+                    dialpadSeed = ""
+                    dialpadOpen = true
+                },
+                shape = CircleShape,
+                containerColor = CallMemoBlue,
+                contentColor = Color.White,
+            ) {
+                Icon(Icons.Outlined.Dialpad, contentDescription = "Набор номера")
             }
         }
     }

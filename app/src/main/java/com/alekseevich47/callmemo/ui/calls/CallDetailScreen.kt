@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -280,65 +281,30 @@ fun CallDetailRoute(
             val positionMs = if (isThisPlaying) playback.positionMs else 0L
             val progress = (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
 
-            WaveformSeek(
-                progress = progress,
-                filledColor = CallMemoBlue,
-                emptyColor = CallMemoBlue.copy(alpha = 0.22f),
-                onSeekFraction = { fraction ->
-                    if (isThisPlaying) {
-                        onSeekPlayback((fraction * durationMs).toLong())
-                    } else {
-                        onPlay(
-                            entry.id,
-                            entry.contactName.orEmpty().ifBlank { entry.number },
-                            entry.number,
-                            entry.recordingUri,
-                            durationMs,
-                            entry.startedAt.toEpochMilli(),
-                        )
-                        onSeekPlayback((fraction * durationMs).toLong())
-                    }
-                },
-            )
-            Spacer(Modifier.height(4.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    TimeFormat.duration(positionMs / 1000),
-                    color = CallMemoMuted,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    TimeFormat.duration(durationMs / 1000),
-                    color = CallMemoMuted,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+            fun startOrSeek(fraction: Float? = null) {
+                if (!isThisPlaying) {
+                    onPlay(
+                        entry.id,
+                        entry.contactName.orEmpty().ifBlank { entry.number },
+                        entry.number,
+                        entry.recordingUri,
+                        durationMs,
+                        entry.startedAt.toEpochMilli(),
+                    )
+                }
+                if (fraction != null) onSeekPlayback((fraction * durationMs).toLong())
             }
-            Spacer(Modifier.height(8.dp))
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(
                     onClick = {
-                        if (isThisPlaying) {
-                            onTogglePlayback()
-                        } else {
-                            onPlay(
-                                entry.id,
-                                entry.contactName.orEmpty().ifBlank { entry.number },
-                                entry.number,
-                                entry.recordingUri,
-                                durationMs,
-                                entry.startedAt.toEpochMilli(),
-                            )
-                        }
+                        if (isThisPlaying) onTogglePlayback() else startOrSeek()
                     },
                     modifier = Modifier
-                        .size(56.dp)
+                        .size(48.dp)
                         .clip(CircleShape)
                         .background(CallMemoBlue),
                 ) {
@@ -351,6 +317,38 @@ fun CallDetailRoute(
                         contentDescription = "Слушать",
                         tint = Color.White,
                     )
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    WaveformSeek(
+                        progress = progress,
+                        amplitudes = if (isThisPlaying) playback.amplitudes else emptyList(),
+                        filledColor = CallMemoBlue,
+                        emptyColor = CallMemoBlue.copy(alpha = 0.22f),
+                        onSeekFraction = { fraction ->
+                            if (isThisPlaying) {
+                                onSeekPlayback((fraction * durationMs).toLong())
+                            } else {
+                                startOrSeek(fraction)
+                            }
+                        },
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            TimeFormat.duration(positionMs / 1000),
+                            color = CallMemoMuted,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            TimeFormat.duration(durationMs / 1000),
+                            color = CallMemoMuted,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
                 }
             }
         }

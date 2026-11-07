@@ -30,5 +30,7 @@ class PlayerViewModel @Inject constructor(
 
     fun cycleSpeed() = controller.cycleSpeed()
 
+    fun setEarpiece(enabled: Boolean) = controller.setEarpiece(enabled)
+
     fun hide() = controller.hide()
 }

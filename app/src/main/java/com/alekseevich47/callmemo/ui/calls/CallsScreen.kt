@@ -15,16 +15,30 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.CallMade
 import androidx.compose.material.icons.automirrored.outlined.CallMissed
 import androidx.compose.material.icons.automirrored.outlined.CallReceived
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.Button
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DateRangePicker
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDateRangePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -45,6 +59,11 @@ import com.alekseevich47.callmemo.ui.theme.CallMemoMuted
 import com.alekseevich47.callmemo.ui.theme.CallMemoSuccess
 import com.alekseevich47.callmemo.util.PhoneNumberUtils
 import com.alekseevich47.callmemo.util.TimeFormat
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Composable
 fun CallsRoute(
@@ -54,42 +73,100 @@ fun CallsRoute(
     listBottomPadding: Dp = 140.dp,
     hasCallLogPermission: Boolean = true,
     onRequestPermissions: () -> Unit = {},
+    onScrollFabVisible: (Boolean) -> Unit = {},
     viewModel: CallsViewModel = hiltViewModel(),
 ) {
     val calls by viewModel.calls.collectAsStateWithLifecycle()
     val query by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val filter by viewModel.filter.collectAsStateWithLifecycle()
     CallsScreen(
         calls = calls,
         query = query,
+        filter = filter,
         onQueryChange = viewModel::onQueryChange,
+        onDateFilter = viewModel::setDateFilter,
+        onClearDateFilter = viewModel::clearDateFilter,
         onOpenSettings = onOpenSettings,
         onOpenDetail = onOpenDetail,
         onCallNumber = onCallNumber,
         listBottomPadding = listBottomPadding,
         hasCallLogPermission = hasCallLogPermission,
         onRequestPermissions = onRequestPermissions,
+        onScrollFabVisible = onScrollFabVisible,
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CallsScreen(
     calls: List<CallLogEntry>,
     query: String,
+    filter: CallDateFilter,
     onQueryChange: (String) -> Unit,
+    onDateFilter: (LocalDate?, LocalDate?) -> Unit,
+    onClearDateFilter: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenDetail: (Long) -> Unit,
     onCallNumber: (String?, String) -> Unit,
     listBottomPadding: Dp = 140.dp,
     hasCallLogPermission: Boolean = true,
     onRequestPermissions: () -> Unit = {},
+    onScrollFabVisible: (Boolean) -> Unit = {},
 ) {
+    var showRangePicker by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(listState) {
+        var lastIndex = 0
+        var lastOffset = 0
+        snapshotFlow {
+            listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+        }.distinctUntilChanged().collect { (index, offset) ->
+            val scrollingDown = index > lastIndex || (index == lastIndex && offset > lastOffset + 4)
+            val scrollingUp = index < lastIndex || (index == lastIndex && offset < lastOffset - 4)
+            when {
+                scrollingDown && (index > 0 || offset > 24) -> onScrollFabVisible(false)
+                scrollingUp -> onScrollFabVisible(true)
+            }
+            lastIndex = index
+            lastOffset = offset
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         ScreenHeader(title = "Звонки", onSettings = onOpenSettings)
         SearchField(
             value = query,
             onValueChange = onQueryChange,
             placeholder = "Поиск по звонкам...",
+            trailingIcon = {
+                IconButton(onClick = { showRangePicker = true }) {
+                    Icon(
+                        Icons.Outlined.CalendarMonth,
+                        contentDescription = "Фильтр по дате",
+                        tint = if (filter.active) CallMemoBlue else CallMemoMuted,
+                    )
+                }
+            },
         )
+        if (filter.active) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = formatFilter(filter),
+                    color = CallMemoBlue,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = onClearDateFilter) {
+                    Icon(Icons.Outlined.Close, contentDescription = "Сбросить фильтр", tint = CallMemoMuted)
+                }
+            }
+        }
         Spacer(Modifier.height(8.dp))
         when {
             !hasCallLogPermission -> {
@@ -106,7 +183,7 @@ fun CallsScreen(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = "Пока нет звонков",
+                        text = if (filter.active) "Нет звонков за выбранный период" else "Пока нет звонков",
                         color = CallMemoMuted,
                         style = MaterialTheme.typography.bodyLarge,
                     )
@@ -114,6 +191,7 @@ fun CallsScreen(
             }
             else -> {
                 LazyColumn(
+                    state = listState,
                     contentPadding = PaddingValues(bottom = listBottomPadding),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
@@ -127,6 +205,49 @@ fun CallsScreen(
                 }
             }
         }
+    }
+
+    if (showRangePicker) {
+        val pickerState = rememberDateRangePickerState(
+            initialSelectedStartDateMillis = filter.start?.atStartOfDay(ZoneId.systemDefault())
+                ?.toInstant()?.toEpochMilli(),
+            initialSelectedEndDateMillis = filter.end?.atStartOfDay(ZoneId.systemDefault())
+                ?.toInstant()?.toEpochMilli(),
+        )
+        DatePickerDialog(
+            onDismissRequest = { showRangePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val startMs = pickerState.selectedStartDateMillis
+                        val endMs = pickerState.selectedEndDateMillis ?: startMs
+                        if (startMs != null) {
+                            val zone = ZoneId.systemDefault()
+                            val start = Instant.ofEpochMilli(startMs).atZone(zone).toLocalDate()
+                            val end = Instant.ofEpochMilli(endMs!!).atZone(zone).toLocalDate()
+                            onDateFilter(start, end)
+                        }
+                        showRangePicker = false
+                    },
+                ) { Text("Готово") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRangePicker = false }) { Text("Отмена") }
+            },
+        ) {
+            DateRangePicker(state = pickerState, showModeToggle = false)
+        }
+    }
+}
+
+private fun formatFilter(filter: CallDateFilter): String {
+    val fmt = DateTimeFormatter.ofPattern("d MMM yyyy")
+    val start = filter.start ?: return ""
+    val end = filter.end ?: start
+    return if (start == end) {
+        "Звонки за ${start.format(fmt)}"
+    } else {
+        "Звонки: ${start.format(fmt)} – ${end.format(fmt)}"
     }
 }
 

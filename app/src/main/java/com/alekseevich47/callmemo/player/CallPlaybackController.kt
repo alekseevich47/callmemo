@@ -1,11 +1,15 @@
 package com.alekseevich47.callmemo.player
 
 import android.content.Context
+import android.content.Intent
 import android.media.AudioManager
 import android.net.Uri
+import android.os.Build
+import androidx.core.content.ContextCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.alekseevich47.callmemo.data.recording.RecordingLocator
@@ -22,10 +26,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.math.sin
 
 data class PlaybackUiState(
     val visible: Boolean = false,
@@ -37,14 +39,18 @@ data class PlaybackUiState(
     val positionMs: Long = 0L,
     val durationMs: Long = 0L,
     val speed: Float = 1f,
+    val amplitudes: List<Float> = emptyList(),
+    val earpiece: Boolean = false,
 )
 
 @Singleton
 class CallPlaybackController @Inject constructor(
     @ApplicationContext context: Context,
     private val recordingLocator: RecordingLocator,
+    private val waveformAnalyzer: WaveformAnalyzer,
 ) {
     private val appContext = context.applicationContext
+    private val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val scope = CoroutineScope(Dispatchers.Main.immediate)
     private var player: ExoPlayer? = null
     private var ticker: Job? = null
@@ -65,7 +71,7 @@ class CallPlaybackController @Inject constructor(
     ) {
         playJob?.cancel()
         ensurePlayer()
-        val fallbackDuration = durationHintMs.coerceAtLeast(1_000L)
+        val hint = durationHintMs.coerceAtLeast(1_000L)
         _state.value = PlaybackUiState(
             visible = true,
             callId = callId,
@@ -74,22 +80,21 @@ class CallPlaybackController @Inject constructor(
             uri = uri,
             playing = true,
             speed = 1f,
-            durationMs = fallbackDuration,
+            durationMs = hint,
             positionMs = 0L,
+            amplitudes = emptyList(),
         )
         playJob = scope.launch {
             val resolved = withContext(Dispatchers.IO) {
-                when {
-                    !uri.isNullOrBlank() && !uri.startsWith("demo://") -> uri
-                    else -> recordingLocator.findRecording(
-                        number = number,
-                        startedAtEpochMs = startedAtEpochMs,
-                        durationSeconds = (durationHintMs / 1000L).coerceAtLeast(1L),
-                    ) ?: createFallbackTone(fallbackDuration.coerceIn(3_000L, 20_000L))
-                }
+                resolvePlayableUri(uri, number, startedAtEpochMs, hint)
+                    ?: synthesizeTone(hint)
+            }
+            val amplitudes = withContext(Dispatchers.IO) {
+                waveformAnalyzer.amplitudes(resolved)
             }
             val exo = player ?: return@launch
-            _state.update { it.copy(uri = resolved) }
+            _state.update { it.copy(uri = resolved, amplitudes = amplitudes) }
+            applySpeakerRoute()
             runCatching {
                 exo.stop()
                 exo.clearMediaItems()
@@ -102,6 +107,7 @@ class CallPlaybackController @Inject constructor(
                 _state.update { state -> state.copy(playing = false) }
             }
             startTicker()
+            startNotificationService()
         }
     }
 
@@ -115,6 +121,7 @@ class CallPlaybackController @Inject constructor(
         } else {
             _state.update { it.copy(playing = !it.playing) }
         }
+        startNotificationService()
     }
 
     fun seekTo(positionMs: Long) {
@@ -125,6 +132,7 @@ class CallPlaybackController @Inject constructor(
             exo.seekTo(clamped)
         }
         _state.update { it.copy(positionMs = clamped) }
+        startNotificationService()
     }
 
     fun cycleSpeed() {
@@ -135,80 +143,47 @@ class CallPlaybackController @Inject constructor(
         _state.update { it.copy(speed = next) }
     }
 
+    fun setEarpiece(enabled: Boolean) {
+        if (_state.value.earpiece == enabled) return
+        _state.update { it.copy(earpiece = enabled) }
+        if (enabled) applyEarpieceRoute() else applySpeakerRoute()
+    }
+
     fun hide() {
         playJob?.cancel()
         ticker?.cancel()
         player?.stop()
         player?.clearMediaItems()
+        applySpeakerRoute()
+        stopNotificationService()
         _state.value = PlaybackUiState()
     }
 
-    private fun ensurePlayer() {
-        if (player != null) return
-        player = ExoPlayer.Builder(appContext).build().also { exo ->
-            val attrs = AudioAttributes.Builder()
-                .setUsage(C.USAGE_MEDIA)
-                .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
-                .build()
-            exo.setAudioAttributes(attrs, true)
-            exo.volume = 1f
-            @Suppress("DEPRECATION")
-            (appContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager)
-                ?.requestAudioFocus(
-                    null,
-                    AudioManager.STREAM_MUSIC,
-                    AudioManager.AUDIOFOCUS_GAIN_TRANSIENT,
-                )
-            exo.addListener(object : Player.Listener {
-                override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    _state.update { it.copy(playing = isPlaying) }
-                }
-
-                override fun onPlaybackStateChanged(playbackState: Int) {
-                    if (playbackState == Player.STATE_READY) {
-                        val mediaDuration = exo.duration
-                        _state.update {
-                            it.copy(
-                                durationMs = if (mediaDuration > 0) mediaDuration else it.durationMs,
-                                playing = exo.playWhenReady,
-                            )
-                        }
-                    }
-                    if (playbackState == Player.STATE_ENDED) {
-                        _state.update { it.copy(playing = false, positionMs = it.durationMs) }
-                    }
-                }
-            })
+    private fun resolvePlayableUri(
+        uri: String?,
+        number: String,
+        startedAtEpochMs: Long,
+        durationHintMs: Long,
+    ): String? {
+        if (!uri.isNullOrBlank() && !uri.startsWith("demo://")) {
+            if (uri.startsWith("content:") || uri.startsWith("file:")) return uri
+            val asFile = File(uri)
+            if (asFile.exists()) return Uri.fromFile(asFile).toString()
+            return uri
         }
+        return recordingLocator.findRecording(
+            number = number,
+            startedAtEpochMs = startedAtEpochMs,
+            durationSeconds = (durationHintMs / 1000L).coerceAtLeast(1L),
+        )
     }
 
-    private fun startTicker() {
-        ticker?.cancel()
-        ticker = scope.launch {
-            while (isActive) {
-                val current = _state.value
-                if (!current.visible) break
-                val exo = player
-                if (exo != null && !current.uri.isNullOrBlank()) {
-                    val mediaDuration = exo.duration
-                    _state.update {
-                        it.copy(
-                            positionMs = exo.currentPosition.coerceAtLeast(0L),
-                            durationMs = if (mediaDuration > 0) mediaDuration else it.durationMs,
-                            playing = exo.isPlaying,
-                        )
-                    }
-                }
-                delay(100)
-            }
-        }
-    }
-
-    /** Soft tone so play always produces audible feedback when no OEM file is found. */
-    private fun createFallbackTone(durationMs: Long): String {
-        val file = File(appContext.cacheDir, "callmemo_fallback_${durationMs}.wav")
+    /** Audible placeholder matching call duration when no OEM file is available. */
+    private fun synthesizeTone(durationHintMs: Long): String {
+        val ms = durationHintMs.coerceIn(3_000L, 600_000L)
+        val file = File(appContext.cacheDir, "callmemo_tone_${ms}.wav")
         if (!file.exists() || file.length() < 44L) {
-            writeToneWav(file, durationMs)
+            writeToneWav(file, ms)
         }
         return Uri.fromFile(file).toString()
     }
@@ -225,13 +200,16 @@ class CallPlaybackController @Inject constructor(
                 t > seconds - 0.05 -> ((seconds - t).coerceAtLeast(0.0) / 0.05)
                 else -> 1.0
             }
-            val sample = (sin(2.0 * Math.PI * 440.0 * t) * 0.28 * envelope * Short.MAX_VALUE)
-                .toInt()
-                .toShort()
+            // Soft speech-like amplitude modulation so waveform analyzer has peaks.
+            val mod = 0.55 + 0.45 * kotlin.math.sin(2.0 * Math.PI * 3.2 * t)
+            val sample = (
+                kotlin.math.sin(2.0 * Math.PI * 440.0 * t) *
+                    0.22 * envelope * mod * Short.MAX_VALUE
+                ).toInt().toShort()
             pcm[s * 2] = (sample.toInt() and 0xff).toByte()
             pcm[s * 2 + 1] = ((sample.toInt() shr 8) and 0xff).toByte()
         }
-        FileOutputStream(file).use { out ->
+        java.io.FileOutputStream(file).use { out ->
             fun writeInt(v: Int) {
                 out.write(v and 0xff)
                 out.write((v shr 8) and 0xff)
@@ -256,6 +234,112 @@ class CallPlaybackController @Inject constructor(
             out.write("data".toByteArray())
             writeInt(pcm.size)
             out.write(pcm)
+        }
+    }
+
+    private fun ensurePlayer() {
+        if (player != null) return
+        player = ExoPlayer.Builder(appContext).build().also { exo ->
+            applySpeakerRoute(exo)
+            exo.volume = 1f
+            exo.addListener(object : Player.Listener {
+                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    _state.update { it.copy(playing = isPlaying) }
+                    startNotificationService()
+                }
+
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (playbackState == Player.STATE_READY) {
+                        val mediaDuration = exo.duration
+                        _state.update {
+                            it.copy(
+                                durationMs = if (mediaDuration > 0) mediaDuration else it.durationMs,
+                                playing = exo.playWhenReady,
+                            )
+                        }
+                    }
+                    if (playbackState == Player.STATE_ENDED) {
+                        _state.update { it.copy(playing = false, positionMs = it.durationMs) }
+                        startNotificationService()
+                    }
+                }
+
+                override fun onPlayerError(error: PlaybackException) {
+                    _state.update { it.copy(playing = false) }
+                }
+            })
+        }
+    }
+
+    private fun applySpeakerRoute(exo: ExoPlayer? = player) {
+        audioManager.mode = AudioManager.MODE_NORMAL
+        @Suppress("DEPRECATION")
+        audioManager.isSpeakerphoneOn = false
+        exo?.setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(C.USAGE_MEDIA)
+                .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
+                .build(),
+            true,
+        )
+    }
+
+    private fun applyEarpieceRoute(exo: ExoPlayer? = player) {
+        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+        @Suppress("DEPRECATION")
+        audioManager.isSpeakerphoneOn = false
+        exo?.setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(C.USAGE_VOICE_COMMUNICATION)
+                .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
+                .build(),
+            true,
+        )
+    }
+
+    private fun startTicker() {
+        ticker?.cancel()
+        ticker = scope.launch {
+            while (isActive) {
+                val current = _state.value
+                if (!current.visible) break
+                val exo = player
+                if (exo != null && !current.uri.isNullOrBlank()) {
+                    val mediaDuration = exo.duration
+                    _state.update {
+                        it.copy(
+                            positionMs = exo.currentPosition.coerceAtLeast(0L),
+                            durationMs = if (mediaDuration > 0) mediaDuration else it.durationMs,
+                            playing = exo.isPlaying,
+                        )
+                    }
+                    if (current.playing) startNotificationService()
+                }
+                delay(500)
+            }
+        }
+    }
+
+    private fun startNotificationService() {
+        if (!_state.value.visible) {
+            stopNotificationService()
+            return
+        }
+        val intent = Intent(appContext, PlaybackService::class.java).apply {
+            action = PlaybackService.ACTION_SYNC
+        }
+        runCatching {
+            if (Build.VERSION.SDK_INT >= 26) {
+                ContextCompat.startForegroundService(appContext, intent)
+            } else {
+                appContext.startService(intent)
+            }
+        }
+    }
+
+    private fun stopNotificationService() {
+        runCatching {
+            appContext.stopService(Intent(appContext, PlaybackService::class.java))
         }
     }
 }
