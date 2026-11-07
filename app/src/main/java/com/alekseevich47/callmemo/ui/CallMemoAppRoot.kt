@@ -8,6 +8,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -66,6 +67,8 @@ import com.alekseevich47.callmemo.util.PhoneNumberUtils
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
 import java.net.URLDecoder
 
 private const val TabAnimMs = 160
@@ -88,9 +91,12 @@ fun CallMemoAppRoot(
     val player by playerViewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
-    var dialpadOpen by rememberSaveable { mutableStateOf(false) }
+    // Calls opens with dialpad expanded; scroll collapses it; FAB stays when closed.
+    var dialpadOpen by rememberSaveable { mutableStateOf(true) }
+    var dialpadMounted by remember { mutableStateOf(true) }
     var dialpadSeed by rememberSaveable { mutableStateOf("") }
-    var dialFabVisible by rememberSaveable { mutableStateOf(true) }
+    var playerSwipeDismissing by remember { mutableStateOf(false) }
+    val hazeState = remember { HazeState() }
 
     val permissionState = rememberMultiplePermissionsState(
         permissions = buildList {
@@ -125,6 +131,7 @@ fun CallMemoAppRoot(
     LaunchedEffect(initialDialNumber) {
         if (!initialDialNumber.isNullOrBlank()) {
             dialpadSeed = initialDialNumber
+            dialpadMounted = true
             dialpadOpen = true
         }
     }
@@ -175,14 +182,20 @@ fun CallMemoAppRoot(
         route != Routes.SETTINGS
     val showDialFab = topLevel == TopLevelDestination.CALLS &&
         !dialpadOpen &&
-        !inCallChrome &&
-        dialFabVisible
+        !dialpadMounted &&
+        !inCallChrome
 
     val tabsReserve = if (showTabs) 78.dp else 0.dp
-    val playerReserve = if (showPlayer && !dialpadOpen) 64.dp else 0.dp
+    val playerReserve = if (showPlayer && !dialpadMounted) 64.dp else 0.dp
     val chromeBottom = tabsReserve + playerReserve + 12.dp
-    // Dialpad sits under tabs; reserve tab chrome under the sheet.
-    val dialpadBottomPad = tabsReserve + 12.dp
+    // Dialpad sits under tabs; extra pad so call FAB clears glass menu.
+    val dialpadBottomPad = tabsReserve + 20.dp
+
+    fun openDialpad(seed: String = "") {
+        dialpadSeed = seed
+        dialpadMounted = true
+        dialpadOpen = true
+    }
 
     fun placeCall(name: String?, number: String) {
         val dial = PhoneNumberUtils.normalizeForDial(number)
@@ -205,13 +218,20 @@ fun CallMemoAppRoot(
     }
 
     fun selectTab(dest: TopLevelDestination) {
-        dialpadOpen = false
-        dialFabVisible = dest == TopLevelDestination.CALLS
+        if (dest == TopLevelDestination.CALLS) {
+            openDialpad()
+        } else {
+            dialpadOpen = false
+        }
         navController.navigate(dest.route) {
             popUpTo(TopLevelDestination.CALLS.route) { saveState = true }
             launchSingleTop = true
             restoreState = true
         }
+    }
+
+    LaunchedEffect(showPlayer) {
+        if (showPlayer) playerSwipeDismissing = false
     }
 
     Box(
@@ -223,7 +243,9 @@ fun CallMemoAppRoot(
         NavHost(
             navController = navController,
             startDestination = TopLevelDestination.CALLS.route,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .hazeSource(state = hazeState),
             enterTransition = {
                 fadeIn(animationSpec = tween(TabAnimMs)) +
                     slideIntoContainer(
@@ -267,7 +289,9 @@ fun CallMemoAppRoot(
                         it.permission == Manifest.permission.READ_CALL_LOG && it.status.isGranted
                     },
                     onRequestPermissions = { permissionState.launchMultiplePermissionRequest() },
-                    onScrollFabVisible = { visible -> dialFabVisible = visible },
+                    onScrollCalls = { scrollingDown ->
+                        if (scrollingDown) dialpadOpen = false
+                    },
                 )
             }
             composable(TopLevelDestination.CONTACTS.route) {
@@ -377,7 +401,12 @@ fun CallMemoAppRoot(
                 .navigationBarsPadding()
                 .padding(bottom = if (showTabs) 82.dp else 8.dp),
             enter = fadeIn(tween(TabAnimMs)) + slideInVertically(tween(TabAnimMs)) { it / 2 },
-            exit = fadeOut(tween(TabAnimMs)) + slideOutVertically(tween(TabAnimMs)) { it / 2 },
+            // Swipe already moved the bar off-screen — skip exit animation to avoid flash.
+            exit = if (playerSwipeDismissing) {
+                ExitTransition.None
+            } else {
+                fadeOut(tween(TabAnimMs)) + slideOutVertically(tween(TabAnimMs)) { it / 2 }
+            },
         ) {
             StickyPlayerBar(
                 state = player,
@@ -387,22 +416,28 @@ fun CallMemoAppRoot(
                 onOpenDetail = {
                     player.callId?.let { id -> navController.navigate(Routes.callDetail(id)) }
                 },
-                onDismiss = playerViewModel::hide,
+                onDismiss = {
+                    playerSwipeDismissing = true
+                    playerViewModel.hide()
+                },
             )
         }
 
-        // Sheet owns enter/exit slide; no AnimatedVisibility slide (avoids reopen flash on dismiss).
-        if (dialpadOpen) {
+        // Sheet owns enter/exit slide; stay mounted until dismiss animation finishes.
+        if (dialpadMounted && topLevel == TopLevelDestination.CALLS && !inCallChrome) {
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .zIndex(2f),
             ) {
                 DialpadSheet(
-                    visible = true,
+                    expanded = dialpadOpen,
                     bottomContentPadding = PaddingValues(bottom = dialpadBottomPad),
                     initialNumber = dialpadSeed,
-                    onDismiss = { dialpadOpen = false },
+                    onDismissFinished = {
+                        dialpadOpen = false
+                        dialpadMounted = false
+                    },
                     onCall = { number -> placeCall(null, number) },
                 )
             }
@@ -422,6 +457,7 @@ fun CallMemoAppRoot(
             GlassBottomBar(
                 current = lastTopLevel,
                 onSelect = ::selectTab,
+                hazeState = hazeState,
             )
         }
 
@@ -434,10 +470,7 @@ fun CallMemoAppRoot(
             exit = fadeOut(tween(TabAnimMs)),
         ) {
             ChromeFab(
-                onClick = {
-                    dialpadSeed = ""
-                    dialpadOpen = true
-                },
+                onClick = { openDialpad() },
                 icon = Icons.Outlined.Dialpad,
                 contentDescription = "Набор номера",
                 bottomPadding = if (showPlayer) ChromeFabBottomPadding + 58.dp else ChromeFabBottomPadding,

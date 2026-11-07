@@ -1,6 +1,7 @@
 package com.alekseevich47.callmemo.data.recording
 
 import android.Manifest
+import android.content.ContentUris
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -23,8 +24,8 @@ class RecordingLocator @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
     fun findRecording(number: String, startedAtEpochMs: Long, durationSeconds: Long): String? {
-        val windowStart = startedAtEpochMs - 120_000L
-        val windowEnd = startedAtEpochMs + (durationSeconds.coerceAtLeast(0) * 1000L) + 300_000L
+        val windowStart = startedAtEpochMs - 180_000L
+        val windowEnd = startedAtEpochMs + (durationSeconds.coerceAtLeast(0) * 1000L) + 420_000L
         val digits = PhoneNumberUtils.digitsOnly(number)
         return findInMediaStore(digits, windowStart, windowEnd)
             ?: findInOemFolders(digits, windowStart, windowEnd)
@@ -52,6 +53,7 @@ class RecordingLocator @Inject constructor(
             MediaStore.Audio.Media.DISPLAY_NAME,
             MediaStore.Audio.Media.DATE_ADDED,
             MediaStore.Audio.Media.DATE_MODIFIED,
+            MediaStore.Audio.Media.DURATION,
         )
         val selection = "(${MediaStore.Audio.Media.DATE_ADDED} BETWEEN ? AND ?) OR " +
             "(${MediaStore.Audio.Media.DATE_MODIFIED} BETWEEN ? AND ?)"
@@ -78,10 +80,12 @@ class RecordingLocator @Inject constructor(
                 val score = scoreName(name, digits)
                 if (score > bestScore) {
                     bestScore = score
-                    bestUri = Uri.withAppendedPath(collection, it.getLong(idIdx).toString())
+                    // ContentUris — correct MediaStore item URI (withAppendedPath breaks playback).
+                    bestUri = ContentUris.withAppendedId(collection, it.getLong(idIdx))
                 }
             }
-            if (bestScore >= 0) bestUri?.toString() else null
+            // Accept any candidate in the time window; prefer name-matched scores.
+            if (bestScore >= -1 && bestUri != null) bestUri.toString() else null
         }
     }
 
@@ -100,7 +104,7 @@ class RecordingLocator @Inject constructor(
         }
         return candidates
             .maxByOrNull { scoreName(it.name, digits) }
-            ?.takeIf { scoreName(it.name, digits) >= 0 }
+            ?.takeIf { scoreName(it.name, digits) >= -1 }
             ?.let { Uri.fromFile(it).toString() }
     }
 
@@ -108,10 +112,14 @@ class RecordingLocator @Inject constructor(
         val lower = name.lowercase()
         val nameDigits = lower.filter { it.isDigit() }
         var score = 0
-        if (listOf("call", "record", "rec", "phone").any { lower.contains(it) }) score += 2
-        if (digits.length >= 7 && nameDigits.contains(digits.takeLast(7))) score += 10
-        else if (digits.length >= 4 && nameDigits.contains(digits.takeLast(4))) score += 4
-        else if (digits.isNotEmpty() && !nameDigits.contains(digits.takeLast(4))) score -= 1
+        if (listOf("call", "record", "rec", "phone", "звук", "вызов").any { lower.contains(it) }) {
+            score += 2
+        }
+        when {
+            digits.length >= 7 && nameDigits.contains(digits.takeLast(7)) -> score += 10
+            digits.length >= 4 && nameDigits.contains(digits.takeLast(4)) -> score += 4
+            digits.length >= 4 -> score -= 1
+        }
         return score
     }
 

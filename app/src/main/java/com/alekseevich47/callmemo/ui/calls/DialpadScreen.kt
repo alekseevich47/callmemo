@@ -58,19 +58,17 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
-private const val DismissThreshold = 0.35f
+private const val DismissThreshold = 0.30f
 
 @Composable
 fun DialpadSheet(
-    visible: Boolean,
+    expanded: Boolean,
     bottomContentPadding: PaddingValues,
     initialNumber: String = "",
-    onDismiss: () -> Unit,
+    onDismissFinished: () -> Unit,
     onCall: (String) -> Unit,
     sheetModifier: Modifier = Modifier,
 ) {
-    if (!visible) return
-
     var number by rememberSaveable { mutableStateOf(initialNumber) }
     LaunchedEffect(initialNumber) {
         if (initialNumber.isNotEmpty()) number = initialNumber
@@ -82,13 +80,14 @@ fun DialpadSheet(
     val scope = rememberCoroutineScope()
     var dismissing by remember { mutableStateOf(false) }
     var entered by remember { mutableStateOf(false) }
-
     BoxWithConstraints(modifier = sheetModifier.fillMaxWidth()) {
         val minSheetPx = with(density) { 420.dp.toPx() }
         val maxAllowedPx = constraints.maxHeight * 0.72f
         val targetPx = constraints.maxHeight * 0.58f
         val sheetHeightPx = max(minSheetPx, targetPx).coerceAtMost(maxAllowedPx)
         val sheetHeight = with(density) { sheetHeightPx.toDp() }
+        // Extra lift so call FAB clears the glass tabs.
+        val callButtonClearance = PaddingValues(bottom = 28.dp)
 
         // Enter from below once; never snap back to 0 after a dismiss animation.
         LaunchedEffect(sheetHeightPx) {
@@ -101,6 +100,15 @@ fun DialpadSheet(
             entered = true
         }
 
+        // External collapse (tab scroll / section change) — animate out then notify.
+        LaunchedEffect(expanded) {
+            if (!expanded && entered && !dismissing) {
+                dismissing = true
+                offsetY.animateTo(sheetHeightPx, tween(durationMillis = 240))
+                onDismissFinished()
+            }
+        }
+
         fun dismissSheet() {
             if (dismissing) return
             dismissing = true
@@ -109,7 +117,7 @@ fun DialpadSheet(
                     sheetHeightPx,
                     tween(durationMillis = 220),
                 )
-                onDismiss()
+                onDismissFinished()
             }
         }
 
@@ -121,6 +129,7 @@ fun DialpadSheet(
                 .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
                 .background(Color.White)
                 .padding(bottomContentPadding)
+                .padding(callButtonClearance)
                 .padding(horizontal = 12.dp)
                 .pointerInput(sheetHeightPx, dismissing) {
                     if (dismissing) return@pointerInput
@@ -131,7 +140,7 @@ fun DialpadSheet(
                                 if (hidden >= DismissThreshold) {
                                     dismissing = true
                                     offsetY.animateTo(sheetHeightPx, tween(durationMillis = 200))
-                                    onDismiss()
+                                    onDismissFinished()
                                 } else {
                                     offsetY.animateTo(
                                         0f,

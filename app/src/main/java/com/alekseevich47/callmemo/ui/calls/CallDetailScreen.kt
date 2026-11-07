@@ -3,6 +3,9 @@ package com.alekseevich47.callmemo.ui.calls
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -49,9 +52,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -69,6 +75,7 @@ import com.alekseevich47.callmemo.ui.theme.CallMemoMuted
 import com.alekseevich47.callmemo.ui.theme.CallMemoSky
 import com.alekseevich47.callmemo.util.PhoneNumberUtils
 import com.alekseevich47.callmemo.util.TimeFormat
+import kotlin.math.min
 
 @Composable
 fun CallDetailRoute(
@@ -88,51 +95,126 @@ fun CallDetailRoute(
     var historyExpanded by rememberSaveable { mutableStateOf(false) }
     var moreExpanded by remember { mutableStateOf(false) }
     var headerMoreExpanded by remember { mutableStateOf(false) }
+    val scrollState = rememberScrollState()
+    val density = LocalDensity.current
+    val collapseRangePx = with(density) { 120.dp.toPx() }
+    val collapse = min(1f, scrollState.value / collapseRangePx.coerceAtLeast(1f))
+    val avatarScale by animateFloatAsState(
+        targetValue = 1f - 0.88f * collapse,
+        animationSpec = tween(90),
+        label = "avatar-scale",
+    )
+    val avatarAlpha by animateFloatAsState(
+        targetValue = 1f - collapse,
+        animationSpec = tween(90),
+        label = "avatar-alpha",
+    )
+    val avatarHeight by animateDpAsState(
+        targetValue = (72.dp * (1f - collapse)).coerceAtLeast(0.dp),
+        animationSpec = tween(90),
+        label = "avatar-height",
+    )
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(CallMemoMist)
-            .verticalScroll(rememberScrollState())
-            .padding(bottom = 140.dp),
+            .background(CallMemoMist),
     ) {
-        Row(
+        // Sticky chrome: toolbar + collapsing avatar + pinned name/number.
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .background(CallMemoMist),
         ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Назад")
-            }
-            Text(
-                text = "Детали звонка",
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.weight(1f),
-            )
-            Box {
-                IconButton(onClick = { headerMoreExpanded = true }) {
-                    Icon(Icons.Outlined.MoreHoriz, contentDescription = "Ещё")
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Назад")
                 }
-                DropdownMenu(
-                    expanded = headerMoreExpanded,
-                    onDismissRequest = { headerMoreExpanded = false },
+                Text(
+                    text = "Детали звонка",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.weight(1f),
+                )
+                Box {
+                    IconButton(onClick = { headerMoreExpanded = true }) {
+                        Icon(Icons.Outlined.MoreHoriz, contentDescription = "Ещё")
+                    }
+                    DropdownMenu(
+                        expanded = headerMoreExpanded,
+                        onDismissRequest = { headerMoreExpanded = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Копировать номер") },
+                            onClick = {
+                                entry?.number?.let { clipboard.setText(AnnotatedString(it)) }
+                                headerMoreExpanded = false
+                            },
+                            leadingIcon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null) },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Поделиться") },
+                            onClick = {
+                                entry?.let { shareContact(context, it) }
+                                headerMoreExpanded = false
+                            },
+                            leadingIcon = { Icon(Icons.Outlined.Share, contentDescription = null) },
+                        )
+                    }
+                }
+            }
+
+            if (entry != null) {
+                val title = PhoneNumberUtils.displayOrUnknown(entry.contactName, entry.number)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(avatarHeight),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    DropdownMenuItem(
-                        text = { Text("Копировать номер") },
-                        onClick = {
-                            entry?.number?.let { clipboard.setText(AnnotatedString(it)) }
-                            headerMoreExpanded = false
-                        },
-                        leadingIcon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null) },
+                    if (avatarAlpha > 0.02f) {
+                        AvatarCircle(
+                            label = title,
+                            color = CallMemoBlue,
+                            size = 64.dp,
+                            modifier = Modifier.graphicsLayer {
+                                scaleX = avatarScale
+                                scaleY = avatarScale
+                                alpha = avatarAlpha
+                            },
+                        )
+                    }
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(CallMemoMist)
+                        .padding(horizontal = 20.dp, vertical = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.headlineMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
-                    DropdownMenuItem(
-                        text = { Text("Поделиться") },
-                        onClick = {
-                            entry?.let { shareContact(context, it) }
-                            headerMoreExpanded = false
-                        },
-                        leadingIcon = { Icon(Icons.Outlined.Share, contentDescription = null) },
+                    Text(
+                        text = entry.number,
+                        color = CallMemoMuted,
+                        style = MaterialTheme.typography.bodyLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = "${TimeFormat.full(entry.startedAt)} · ${TimeFormat.duration(entry.durationSeconds)}",
+                        color = CallMemoMuted,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -141,20 +223,27 @@ fun CallDetailRoute(
         if (entry == null) {
             Text("Загрузка…", modifier = Modifier.padding(20.dp), color = CallMemoMuted)
         } else {
-            CallDetailBody(
-                entry = entry,
-                detail = detail,
-                historyExpanded = historyExpanded,
-                onHistoryExpandedChange = { historyExpanded = it },
-                moreExpanded = moreExpanded,
-                onMoreExpandedChange = { moreExpanded = it },
-                playback = playback,
-                onCall = onCall,
-                onOpenCall = onOpenCall,
-                onPlay = onPlay,
-                onTogglePlayback = onTogglePlayback,
-                onSeekPlayback = onSeekPlayback,
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+                    .padding(bottom = 140.dp),
+            ) {
+                CallDetailBody(
+                    entry = entry,
+                    detail = detail,
+                    historyExpanded = historyExpanded,
+                    onHistoryExpandedChange = { historyExpanded = it },
+                    moreExpanded = moreExpanded,
+                    onMoreExpandedChange = { moreExpanded = it },
+                    playback = playback,
+                    onCall = onCall,
+                    onOpenCall = onOpenCall,
+                    onPlay = onPlay,
+                    onTogglePlayback = onTogglePlayback,
+                    onSeekPlayback = onSeekPlayback,
+                )
+            }
         }
     }
 }
@@ -176,24 +265,8 @@ private fun CallDetailBody(
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
-    val title = PhoneNumberUtils.displayOrUnknown(entry.contactName, entry.number)
 
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        AvatarCircle(label = title, color = CallMemoBlue)
-        Spacer(Modifier.height(12.dp))
-        Text(title, style = MaterialTheme.typography.headlineMedium)
-        Text(entry.number, color = CallMemoMuted, style = MaterialTheme.typography.bodyLarge)
-        Text(
-            text = "${TimeFormat.full(entry.startedAt)} · ${TimeFormat.duration(entry.durationSeconds)}",
-            color = CallMemoMuted,
-            style = MaterialTheme.typography.bodyMedium,
-        )
-    }
-
-    Spacer(Modifier.height(18.dp))
+    Spacer(Modifier.height(12.dp))
     Row(
         modifier = Modifier
             .fillMaxWidth()

@@ -43,8 +43,11 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -126,9 +129,14 @@ fun SearchField(
 }
 
 @Composable
-fun AvatarCircle(label: String, color: Color = CallMemoBlue, size: androidx.compose.ui.unit.Dp = 48.dp) {
+fun AvatarCircle(
+    label: String,
+    color: Color = CallMemoBlue,
+    size: androidx.compose.ui.unit.Dp = 48.dp,
+    modifier: Modifier = Modifier,
+) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .size(size)
             .clip(CircleShape)
             .background(color.copy(alpha = 0.15f)),
@@ -154,6 +162,7 @@ private fun tabIcon(destination: TopLevelDestination): ImageVector = when (desti
 fun GlassBottomBar(
     current: TopLevelDestination,
     onSelect: (TopLevelDestination) -> Unit,
+    hazeState: dev.chrisbanes.haze.HazeState,
     barModifier: Modifier = Modifier,
 ) {
     val plateShape = RoundedCornerShape(LiquidGlassTokens.DefaultCorner)
@@ -164,7 +173,7 @@ fun GlassBottomBar(
         contentAlignment = Alignment.Center,
     ) {
         // Single tight glass plate wrapping chips only (no full-width underlay).
-        LiquidGlassPlate(shape = plateShape) {
+        LiquidGlassPlate(hazeState = hazeState, shape = plateShape) {
             Row(
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -231,26 +240,13 @@ fun InfoCircleButton(
     onClick: () -> Unit,
     contentDescription: String = "Подробнее",
 ) {
-    Box(
-        modifier = Modifier
-            .size(40.dp)
-            .clip(CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(22.dp)
-                .border(1.dp, CallMemoMuted.copy(alpha = 0.7f), CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Info,
-                contentDescription = contentDescription,
-                tint = CallMemoMuted,
-                modifier = Modifier.size(14.dp),
-            )
-        }
+    IconButton(onClick = onClick, modifier = Modifier.size(36.dp)) {
+        Icon(
+            imageVector = Icons.Outlined.Info,
+            contentDescription = contentDescription,
+            tint = CallMemoMuted,
+            modifier = Modifier.size(20.dp),
+        )
     }
 }
 
@@ -272,6 +268,7 @@ fun StickyPlayerBar(
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
 
+    var dismissing by remember { mutableStateOf(false) }
     BoxWithConstraints(modifier = barModifier.fillMaxWidth()) {
         val widthPx = with(density) { maxWidth.toPx() }.coerceAtLeast(1f)
         Row(
@@ -279,16 +276,18 @@ fun StickyPlayerBar(
                 .fillMaxWidth()
                 .padding(horizontal = 14.dp)
                 .offset { IntOffset(offsetX.value.roundToInt(), 0) }
-                .pointerInput(widthPx) {
+                .pointerInput(widthPx, dismissing) {
+                    if (dismissing) return@pointerInput
                     detectHorizontalDragGestures(
                         onDragEnd = {
                             scope.launch {
                                 val hidden = abs(offsetX.value) / widthPx
                                 if (hidden >= 0.5f) {
+                                    dismissing = true
                                     val target = if (offsetX.value >= 0f) widthPx else -widthPx
                                     offsetX.animateTo(target, spring(stiffness = Spring.StiffnessMedium))
+                                    // Do not snapTo(0) — avoids flash before parent removes the bar.
                                     onDismiss()
-                                    offsetX.snapTo(0f)
                                 } else {
                                     offsetX.animateTo(
                                         0f,

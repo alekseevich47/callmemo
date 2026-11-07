@@ -67,7 +67,7 @@ fun CallsRoute(
     listBottomPadding: Dp = 140.dp,
     hasCallLogPermission: Boolean = true,
     onRequestPermissions: () -> Unit = {},
-    onScrollFabVisible: (Boolean) -> Unit = {},
+    onScrollCalls: (scrollingDown: Boolean) -> Unit = {},
     viewModel: CallsViewModel = hiltViewModel(),
 ) {
     val calls by viewModel.calls.collectAsStateWithLifecycle()
@@ -86,7 +86,7 @@ fun CallsRoute(
         listBottomPadding = listBottomPadding,
         hasCallLogPermission = hasCallLogPermission,
         onRequestPermissions = onRequestPermissions,
-        onScrollFabVisible = onScrollFabVisible,
+        onScrollCalls = onScrollCalls,
     )
 }
 
@@ -104,7 +104,7 @@ fun CallsScreen(
     listBottomPadding: Dp = 140.dp,
     hasCallLogPermission: Boolean = true,
     onRequestPermissions: () -> Unit = {},
-    onScrollFabVisible: (Boolean) -> Unit = {},
+    onScrollCalls: (scrollingDown: Boolean) -> Unit = {},
 ) {
     var showRangePicker by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
@@ -118,8 +118,8 @@ fun CallsScreen(
             val scrollingDown = index > lastIndex || (index == lastIndex && offset > lastOffset + 4)
             val scrollingUp = index < lastIndex || (index == lastIndex && offset < lastOffset - 4)
             when {
-                scrollingDown && (index > 0 || offset > 24) -> onScrollFabVisible(false)
-                scrollingUp -> onScrollFabVisible(true)
+                scrollingDown && (index > 0 || offset > 16) -> onScrollCalls(true)
+                scrollingUp -> onScrollCalls(false)
             }
             lastIndex = index
             lastOffset = offset
