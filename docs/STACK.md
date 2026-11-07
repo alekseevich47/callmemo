@@ -4,7 +4,7 @@
 > Цель: не забывать, **что уже есть**, **где лежит** и **как применяется**.  
 > UI-спека / макеты: [UI.md](UI.md). Макеты: `docs/mockups/`.
 
-**Последнее обновление:** 2026-11-07 (после sticky player / dialpad / real CallLog / default dialer / notification).
+**Последнее обновление:** 2026-11-07 (glass bar / dialpad 35% / FAB shadow / tennis date modal / crash fix).
 
 ---
 
@@ -76,7 +76,11 @@ player/
 ui/
   CallMemoAppRoot.kt           # NavHost + chrome (tabs / player / dialpad / FAB)
   navigation/NavDestinations.kt
-  components/CommonUi.kt       # glass bar, sticky player, SearchField, FAB pad
+  components/
+    CommonUi.kt                # glass bar, sticky player, SearchField, SectionCard
+    LiquidGlass.kt             # LiquidGlassPlate — reusable glass (CodePen qErQmXO)
+    ChromeFab.kt               # shared FAB: circular shadow + navBars + pad
+    DatePickerModals.kt        # tennis-style single/range date modals
   calls/                       # Calls, CallDetail, Dialpad, ViewModels
   contacts/ ContactsScreen.kt
   calendar/ CalendarScreen.kt
@@ -159,12 +163,19 @@ Telecom → `MainActivity.ACTION_SHOW_INCOMING` / `SHOW_IN_CALL` / `OPEN_CALL_DE
 
 Код: `ui/CallMemoAppRoot.kt`, `ui/components/CommonUi.kt`.
 
+### Liquid glass (переиспользуемый)
+
+- Компонент: `LiquidGlassPlate` (`ui/components/LiquidGlass.kt`), референс CodePen `giladfeder/qErQmXO`.
+- Рецепт: soft blue-tinted shadow + translucent frost (+ blur wash API 31+) + specular rim + diagonal highlight; **контент поверх frost (не blur)**.
+- Применять ко всем будущим chrome-плашкам, которым нужен glass; не дублировать ad-hoc фоны.
+
 ### Glass bottom bar
 
-- Одна полупрозрачная белая **плашка** под чипами (frosted: alpha ~0.58 + blur wash на API 31+).
+- **Одна** плашка по ширине чипов (`LiquidGlassPlate`) — без full-width underlay.
 - Активный таб: только цвет иконки/текста (синий), без заливки чипа.
 - Ripple со **скруглёнными** углами (`clip` + `ripple`).
-- Плашка **поверх** списка (контент виден под ней / скроллится под chrome).
+- Плашка **поверх** списка и **поверх dialpad** (zIndex tabs `4` > dialpad `2`).
+- При уходе на settings/detail хранить `lastTopLevel` — иначе NPE в exit `AnimatedVisibility`.
 
 ### Sticky player
 
@@ -174,23 +185,33 @@ Telecom → `MainActivity.ACTION_SHOW_INCOMING` / `SHOW_IN_CALL` / `OPEN_CALL_DE
 - **Показывать** sticky только **вне** деталки того звонка, который сейчас играет.  
   На деталке того же `callId` — только inline-плеер в карточке; sticky скрыт.
 - При уходе с этой деталки sticky снова появляется (если `visible`).
-- При открытой клавиатуре: dialpad **поверх** player (zIndex 3 > 1), воспроизведение **не** останавливать; при закрытии шторки player снова виден под ней.
+- При открытой клавиатуре: dialpad над player (zIndex 2 > 1), tabs над dialpad; воспроизведение **не** останавливать.
 
 ### Dialpad sheet
 
-- Opaque half-sheet (~58% высоты, min ~420dp), не fullscreen.
-- Grabber сверху; тянуть вниз — живой offset; dismiss при **≥ 50%** высоты, иначе назад.
-- Backspace **справа в поле номера**, только если есть цифры.
+- Opaque half-sheet (~58% высоты, min ~420dp), не fullscreen; enter/exit slide **внутри** sheet (без внешнего slide `AnimatedVisibility` — иначе flash после dismiss).
+- Grabber сверху; тянуть вниз — живой offset; dismiss при **≥ 35%** высоты на отпускании, иначе snap back. Если ушли ниже 35% и вернули выше — не закрываем.
+- После dismiss **не** `snapTo(0)` — иначе шторка мигает.
+- Номер **по центру** относительно клавиш; backspace overlays справа.
 - Закрывать при смене любого таба.
-- Bottom padding шторки = место под **табы** (player не резервировать — клавиатура поверх).
+- Bottom padding шторки = место под **табы**.
 
 ### FAB
 
-- Константа: `ChromeFabBottomPadding = 90.dp` — чуть ниже исторического ~96.dp, **не** у меню.
-- FAB клавиатуры / контакта / события / заметки — **один уровень** (`bottom = ChromeFabBottomPadding`).
+- Компонент: `ChromeFab` — `shadow(CircleShape)` + `FloatingActionButtonDefaults.elevation(0)` (нет квадратной тени на появлении).
+- Константа: `ChromeFabBottomPadding = 90.dp` + `navigationBarsPadding` внутри `ChromeFab`.
+- FAB клавиатуры / контакта / события / заметки — **один уровень**.
 - С включённым sticky player FAB клавиатуры **выше** плашки (`90 + 58`).
-- На Calls: при скролле вниз FAB плавно скрывается, вверх — появляется; при старте видна.
-- При переходе на Calls FAB и chrome табов появляются через общий fade (не раньше чужих FAB).
+- На Calls: при скролле вниз FAB скрывается, вверх — появляется.
+
+### Переходы разделов
+
+- `NavHost` enter/exit/pop: короткий fade + лёгкий horizontal slide (~160ms).
+
+### Date picker (tennis)
+
+- `CallMemoDatePickerModal` / `CallMemoDateRangePickerModal` — модалка поверх экрана как в tennis (membership / DatePickerModal): days→months→years, swipe периода, hint, «Подтвердить».
+- Фильтр дат на Звонках и выбор даты события в Календаре — через эти модалки (не Material DatePickerDialog).
 
 ### Proximity
 
@@ -251,14 +272,14 @@ state: PlaybackUiState(visible, callId, name, number, uri, playing,
 
 | Экран | Статус |
 |-------|--------|
-| Звонки + поиск + фильтр дат | ✅ системный CallLog |
-| Dialpad overlay | ✅ |
-| Деталка: история (3 + expand), SMS/Ещё/share, inline play | ✅ |
+| Звонки + поиск + фильтр дат | ✅ системный CallLog; фильтр — tennis date-range modal |
+| Dialpad overlay | ✅; swipe ≥35%; номер по центру; tabs поверх |
+| Деталка: история (3 + expand), SMS/Ещё/share, inline play | ✅; crash fix (no early return / lastTopLevel) |
 | Sticky player + notification + proximity | ✅ |
-| Контакты (системные) | ✅; FAB «добавить» — stub |
-| Календарь месяц + события Room | ✅ ручное создание |
+| Контакты (системные) | ✅; FAB «добавить» — stub (`ChromeFab`) |
+| Календарь месяц + события Room | ✅; дата события — tennis DatePickerModal |
 | Заметки Room | ✅ |
-| Настройки: dialer role, API key, флаги STT/source | ✅ persist; download/STT/DeepSeek — нет |
+| Настройки: dialer role, API key, флаги STT/source | ✅ persist; crash fix при уходе с табов |
 | In-call / Incoming UI | ✅ визуал; Stream — placeholder |
 | Тестовый входящий из настроек | ✅ только UI-навигация |
 
@@ -326,9 +347,13 @@ push main | cursor/**  +  pull_request
 3. Не навигировать на `Routes.DIALPAD` — использовать overlay state.  
 4. Sticky player ↔ деталка: скрывать sticky только для **того же** `callId`.  
 5. Dialpad поверх player без `hide()` плеера.  
-6. FAB: `90.dp` база; не прижимать к меню (~80 и ниже).  
+6. FAB: только через `ChromeFab` / `ChromeFabBottomPadding=90.dp`; не прижимать к меню.  
 7. Длительность плеера = media duration / duration звонка; **не** хардкодить 20 с.  
-8. Room call_logs/contacts — не писать «в журнал» из InCall вместо системного CallLog, пока нет явной стратегии кэша.
+8. Room call_logs/contacts — не писать «в журнал» из InCall вместо системного CallLog, пока нет явной стратегии кэша.  
+9. Glass — `LiquidGlassPlate`, не full-width underlay под табами.  
+10. Dialpad dismiss: порог **35%**, без `snapTo(0)` после закрытия; tabs zIndex выше sheet.  
+11. Не использовать `topLevel!!` в chrome во время exit-анимации — только `lastTopLevel`.  
+12. Date pickers — tennis-модалки из `DatePickerModals.kt`, не Material DatePickerDialog.
 
 ---
 

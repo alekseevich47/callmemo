@@ -1,6 +1,5 @@
 package com.alekseevich47.callmemo.ui.components
 
-import android.os.Build
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -13,6 +12,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -47,7 +47,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -157,37 +156,28 @@ fun GlassBottomBar(
     onSelect: (TopLevelDestination) -> Unit,
     barModifier: Modifier = Modifier,
 ) {
-    val plateShape = RoundedCornerShape(28.dp)
+    val plateShape = RoundedCornerShape(LiquidGlassTokens.DefaultCorner)
     Box(
         modifier = barModifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp),
         contentAlignment = Alignment.Center,
     ) {
-        // Frosted glass plate: translucent white + soft blur wash behind crisp icons.
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .clip(plateShape)
-                .background(Color.White.copy(alpha = 0.34f))
-                .then(if (Build.VERSION.SDK_INT >= 31) Modifier.blur(16.dp) else Modifier)
-                .background(Color.White.copy(alpha = 0.28f)),
-        )
-        Row(
-            modifier = Modifier
-                .background(Color.White.copy(alpha = 0.58f), plateShape)
-                .border(width = 0.8.dp, color = Color.White.copy(alpha = 0.92f), shape = plateShape)
-                .padding(horizontal = 6.dp, vertical = 5.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TopLevelDestination.entries.forEach { dest ->
-                GlassTabChip(
-                    label = dest.label,
-                    icon = tabIcon(dest),
-                    selected = dest == current,
-                    onClick = { onSelect(dest) },
-                )
+        // Single tight glass plate wrapping chips only (no full-width underlay).
+        LiquidGlassPlate(shape = plateShape) {
+            Row(
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TopLevelDestination.entries.forEach { dest ->
+                    GlassTabChip(
+                        label = dest.label,
+                        icon = tabIcon(dest),
+                        selected = dest == current,
+                        onClick = { onSelect(dest) },
+                    )
+                }
             }
         }
     }
@@ -440,7 +430,7 @@ private fun speedLabel(speed: Float): String = when (speed) {
 @Composable
 fun SectionCard(
     cardModifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(
         modifier = cardModifier
@@ -448,9 +438,8 @@ fun SectionCard(
             .clip(RoundedCornerShape(20.dp))
             .background(Color.White)
             .padding(16.dp),
-    ) {
-        content()
-    }
+        content = content,
+    )
 }
 
 /**

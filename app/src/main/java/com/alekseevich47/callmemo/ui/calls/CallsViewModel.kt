@@ -74,13 +74,15 @@ class CallDetailViewModel @Inject constructor(
     private val repository: CallMemoRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
-    private val callId: Long = checkNotNull(savedStateHandle["callId"])
+    private val callId: Long = savedStateHandle.get<Long>("callId") ?: -1L
     private val _detail = MutableStateFlow<CallDetail?>(null)
     val detail: StateFlow<CallDetail?> = _detail
 
     init {
         viewModelScope.launch {
-            _detail.value = repository.callDetail(callId)
+            if (callId > 0L) {
+                _detail.value = repository.callDetail(callId)
+            }
         }
     }
 }

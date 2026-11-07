@@ -6,33 +6,31 @@ import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Dialpad
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -51,6 +49,7 @@ import com.alekseevich47.callmemo.ui.calendar.CalendarRoute
 import com.alekseevich47.callmemo.ui.calls.CallDetailRoute
 import com.alekseevich47.callmemo.ui.calls.CallsRoute
 import com.alekseevich47.callmemo.ui.calls.DialpadSheet
+import com.alekseevich47.callmemo.ui.components.ChromeFab
 import com.alekseevich47.callmemo.ui.components.ChromeFabBottomPadding
 import com.alekseevich47.callmemo.ui.components.GlassBottomBar
 import com.alekseevich47.callmemo.ui.components.StickyPlayerBar
@@ -62,13 +61,14 @@ import com.alekseevich47.callmemo.ui.navigation.TopLevelDestination
 import com.alekseevich47.callmemo.ui.notes.NotesRoute
 import com.alekseevich47.callmemo.ui.player.PlayerViewModel
 import com.alekseevich47.callmemo.ui.settings.SettingsRoute
-import com.alekseevich47.callmemo.ui.theme.CallMemoBlue
 import com.alekseevich47.callmemo.ui.theme.CallMemoMist
 import com.alekseevich47.callmemo.util.PhoneNumberUtils
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import java.net.URLDecoder
+
+private const val TabAnimMs = 160
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
@@ -156,6 +156,10 @@ fun CallMemoAppRoot(
     }
 
     val topLevel = TopLevelDestination.entries.firstOrNull { route == it.route }
+    // Keep last tab for glass bar during AnimatedVisibility exit (avoids NPE on settings/detail).
+    var lastTopLevel by remember { mutableStateOf(TopLevelDestination.CALLS) }
+    if (topLevel != null) lastTopLevel = topLevel
+
     val inCallChrome = route.startsWith("in_call") || route.startsWith("incoming")
     val onCallDetail = route.startsWith("call_detail")
     val detailCallId = if (onCallDetail) backStack?.arguments?.getLong("callId") else null
@@ -177,7 +181,7 @@ fun CallMemoAppRoot(
     val tabsReserve = if (showTabs) 78.dp else 0.dp
     val playerReserve = if (showPlayer && !dialpadOpen) 64.dp else 0.dp
     val chromeBottom = tabsReserve + playerReserve + 12.dp
-    // Dialpad sits over the player; only reserve tab chrome under the sheet.
+    // Dialpad sits under tabs; reserve tab chrome under the sheet.
     val dialpadBottomPad = tabsReserve + 12.dp
 
     fun placeCall(name: String?, number: String) {
@@ -220,6 +224,38 @@ fun CallMemoAppRoot(
             navController = navController,
             startDestination = TopLevelDestination.CALLS.route,
             modifier = Modifier.fillMaxSize(),
+            enterTransition = {
+                fadeIn(animationSpec = tween(TabAnimMs)) +
+                    slideIntoContainer(
+                        towards = AnimatedContentTransitionScope.SlideDirection.Start,
+                        animationSpec = tween(TabAnimMs),
+                        initialOffset = { it / 28 },
+                    )
+            },
+            exitTransition = {
+                fadeOut(animationSpec = tween(TabAnimMs)) +
+                    slideOutOfContainer(
+                        towards = AnimatedContentTransitionScope.SlideDirection.Start,
+                        animationSpec = tween(TabAnimMs),
+                        targetOffset = { it / 28 },
+                    )
+            },
+            popEnterTransition = {
+                fadeIn(animationSpec = tween(TabAnimMs)) +
+                    slideIntoContainer(
+                        towards = AnimatedContentTransitionScope.SlideDirection.End,
+                        animationSpec = tween(TabAnimMs),
+                        initialOffset = { it / 28 },
+                    )
+            },
+            popExitTransition = {
+                fadeOut(animationSpec = tween(TabAnimMs)) +
+                    slideOutOfContainer(
+                        towards = AnimatedContentTransitionScope.SlideDirection.End,
+                        animationSpec = tween(TabAnimMs),
+                        targetOffset = { it / 28 },
+                    )
+            },
         ) {
             composable(TopLevelDestination.CALLS.route) {
                 CallsRoute(
@@ -340,8 +376,8 @@ fun CallMemoAppRoot(
                 .zIndex(1f)
                 .navigationBarsPadding()
                 .padding(bottom = if (showTabs) 82.dp else 8.dp),
-            enter = fadeIn() + slideInVertically { it / 2 },
-            exit = fadeOut() + slideOutVertically { it / 2 },
+            enter = fadeIn(tween(TabAnimMs)) + slideInVertically(tween(TabAnimMs)) { it / 2 },
+            exit = fadeOut(tween(TabAnimMs)) + slideOutVertically(tween(TabAnimMs)) { it / 2 },
         ) {
             StickyPlayerBar(
                 state = player,
@@ -355,35 +391,36 @@ fun CallMemoAppRoot(
             )
         }
 
-        AnimatedVisibility(
-            visible = dialpadOpen,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .zIndex(3f),
-            enter = slideInVertically { it } + fadeIn(),
-            exit = slideOutVertically { it } + fadeOut(),
-        ) {
-            DialpadSheet(
-                visible = true,
-                bottomContentPadding = PaddingValues(bottom = dialpadBottomPad),
-                initialNumber = dialpadSeed,
-                onDismiss = { dialpadOpen = false },
-                onCall = { number -> placeCall(null, number) },
-            )
+        // Sheet owns enter/exit slide; no AnimatedVisibility slide (avoids reopen flash on dismiss).
+        if (dialpadOpen) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .zIndex(2f),
+            ) {
+                DialpadSheet(
+                    visible = true,
+                    bottomContentPadding = PaddingValues(bottom = dialpadBottomPad),
+                    initialNumber = dialpadSeed,
+                    onDismiss = { dialpadOpen = false },
+                    onCall = { number -> placeCall(null, number) },
+                )
+            }
         }
 
+        // Tabs above dialpad when sheet is open.
         AnimatedVisibility(
             visible = showTabs,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .zIndex(2f)
+                .zIndex(4f)
                 .navigationBarsPadding()
                 .padding(bottom = 4.dp),
-            enter = fadeIn(),
-            exit = fadeOut(),
+            enter = fadeIn(tween(TabAnimMs)),
+            exit = fadeOut(tween(TabAnimMs)),
         ) {
             GlassBottomBar(
-                current = topLevel!!,
+                current = lastTopLevel,
                 onSelect = ::selectTab,
             )
         }
@@ -392,27 +429,19 @@ fun CallMemoAppRoot(
             visible = showDialFab,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .zIndex(2f)
-                .navigationBarsPadding()
-                .padding(
-                    end = 22.dp,
-                    // ~90.dp = чуть ниже прежних 96.dp; с плеером поднимаем выше плашки.
-                    bottom = if (showPlayer) ChromeFabBottomPadding + 58.dp else ChromeFabBottomPadding,
-                ),
-            enter = fadeIn(),
-            exit = fadeOut(),
+                .zIndex(3f),
+            enter = fadeIn(tween(TabAnimMs)),
+            exit = fadeOut(tween(TabAnimMs)),
         ) {
-            FloatingActionButton(
+            ChromeFab(
                 onClick = {
                     dialpadSeed = ""
                     dialpadOpen = true
                 },
-                shape = CircleShape,
-                containerColor = CallMemoBlue,
-                contentColor = Color.White,
-            ) {
-                Icon(Icons.Outlined.Dialpad, contentDescription = "Набор номера")
-            }
+                icon = Icons.Outlined.Dialpad,
+                contentDescription = "Набор номера",
+                bottomPadding = if (showPlayer) ChromeFabBottomPadding + 58.dp else ChromeFabBottomPadding,
+            )
         }
     }
 }

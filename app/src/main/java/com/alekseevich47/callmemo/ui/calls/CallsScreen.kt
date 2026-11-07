@@ -23,15 +23,10 @@ import androidx.compose.material.icons.automirrored.outlined.CallReceived
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.Button
-import androidx.compose.material3.DatePickerDialog
-import androidx.compose.material3.DateRangePicker
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberDateRangePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -50,6 +45,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.alekseevich47.callmemo.domain.model.CallDirection
 import com.alekseevich47.callmemo.domain.model.CallLogEntry
 import com.alekseevich47.callmemo.ui.components.AvatarCircle
+import com.alekseevich47.callmemo.ui.components.CallMemoDateRangePickerModal
 import com.alekseevich47.callmemo.ui.components.InfoCircleButton
 import com.alekseevich47.callmemo.ui.components.ScreenHeader
 import com.alekseevich47.callmemo.ui.components.SearchField
@@ -59,9 +55,7 @@ import com.alekseevich47.callmemo.ui.theme.CallMemoMuted
 import com.alekseevich47.callmemo.ui.theme.CallMemoSuccess
 import com.alekseevich47.callmemo.util.PhoneNumberUtils
 import com.alekseevich47.callmemo.util.TimeFormat
-import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.flow.distinctUntilChanged
 
@@ -96,7 +90,6 @@ fun CallsRoute(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CallsScreen(
     calls: List<CallLogEntry>,
@@ -207,37 +200,13 @@ fun CallsScreen(
         }
     }
 
-    if (showRangePicker) {
-        val pickerState = rememberDateRangePickerState(
-            initialSelectedStartDateMillis = filter.start?.atStartOfDay(ZoneId.systemDefault())
-                ?.toInstant()?.toEpochMilli(),
-            initialSelectedEndDateMillis = filter.end?.atStartOfDay(ZoneId.systemDefault())
-                ?.toInstant()?.toEpochMilli(),
-        )
-        DatePickerDialog(
-            onDismissRequest = { showRangePicker = false },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val startMs = pickerState.selectedStartDateMillis
-                        val endMs = pickerState.selectedEndDateMillis ?: startMs
-                        if (startMs != null) {
-                            val zone = ZoneId.systemDefault()
-                            val start = Instant.ofEpochMilli(startMs).atZone(zone).toLocalDate()
-                            val end = Instant.ofEpochMilli(endMs!!).atZone(zone).toLocalDate()
-                            onDateFilter(start, end)
-                        }
-                        showRangePicker = false
-                    },
-                ) { Text("Готово") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showRangePicker = false }) { Text("Отмена") }
-            },
-        ) {
-            DateRangePicker(state = pickerState, showModeToggle = false)
-        }
-    }
+    CallMemoDateRangePickerModal(
+        visible = showRangePicker,
+        onDismiss = { showRangePicker = false },
+        initialStart = filter.start,
+        initialEnd = filter.end,
+        onConfirm = { start, end -> onDateFilter(start, end) },
+    )
 }
 
 private fun formatFilter(filter: CallDateFilter): String {
