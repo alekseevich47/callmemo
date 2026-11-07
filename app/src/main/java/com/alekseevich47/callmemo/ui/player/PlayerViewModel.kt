@@ -1,43 +1,33 @@
 package com.alekseevich47.callmemo.ui.player
 
 import androidx.lifecycle.ViewModel
+import com.alekseevich47.callmemo.player.CallPlaybackController
+import com.alekseevich47.callmemo.player.PlaybackUiState
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 import javax.inject.Inject
 
-data class StickyPlayerState(
-    val visible: Boolean = false,
-    val title: String = "",
-    val subtitle: String = "",
-    val uri: String? = null,
-    val playing: Boolean = false,
-)
-
 @HiltViewModel
-class PlayerViewModel @Inject constructor() : ViewModel() {
-    private val _state = MutableStateFlow(StickyPlayerState())
-    val state: StateFlow<StickyPlayerState> = _state.asStateFlow()
+class PlayerViewModel @Inject constructor(
+    private val controller: CallPlaybackController,
+) : ViewModel() {
+    val state: StateFlow<PlaybackUiState> = controller.state
 
-    fun play(title: String, subtitle: String, uri: String?) {
-        _state.value = StickyPlayerState(
-            visible = true,
-            title = title,
-            subtitle = subtitle,
-            uri = uri,
-            playing = true,
-        )
+    fun play(
+        callId: Long?,
+        contactName: String,
+        number: String,
+        uri: String?,
+        durationHintMs: Long = 0L,
+    ) {
+        controller.play(callId, contactName, number, uri, durationHintMs)
     }
 
-    fun toggle() {
-        _state.update { current ->
-            if (!current.visible) current else current.copy(playing = !current.playing)
-        }
-    }
+    fun toggle() = controller.toggle()
 
-    fun hide() {
-        _state.value = StickyPlayerState()
-    }
+    fun seekTo(positionMs: Long) = controller.seekTo(positionMs)
+
+    fun cycleSpeed() = controller.cycleSpeed()
+
+    fun hide() = controller.hide()
 }

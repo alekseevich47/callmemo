@@ -15,13 +15,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.CallMade
 import androidx.compose.material.icons.automirrored.outlined.CallMissed
 import androidx.compose.material.icons.automirrored.outlined.CallReceived
-import androidx.compose.material.icons.outlined.Dialpad
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -29,9 +27,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -51,9 +49,11 @@ import com.alekseevich47.callmemo.util.TimeFormat
 @Composable
 fun CallsRoute(
     onOpenSettings: () -> Unit,
-    onOpenDialpad: () -> Unit,
     onOpenDetail: (Long) -> Unit,
     onCallNumber: (String?, String) -> Unit,
+    listBottomPadding: Dp = 140.dp,
+    hasCallLogPermission: Boolean = true,
+    onRequestPermissions: () -> Unit = {},
     viewModel: CallsViewModel = hiltViewModel(),
 ) {
     val calls by viewModel.calls.collectAsStateWithLifecycle()
@@ -63,9 +63,11 @@ fun CallsRoute(
         query = query,
         onQueryChange = viewModel::onQueryChange,
         onOpenSettings = onOpenSettings,
-        onOpenDialpad = onOpenDialpad,
         onOpenDetail = onOpenDetail,
         onCallNumber = onCallNumber,
+        listBottomPadding = listBottomPadding,
+        hasCallLogPermission = hasCallLogPermission,
+        onRequestPermissions = onRequestPermissions,
     )
 }
 
@@ -75,42 +77,72 @@ fun CallsScreen(
     query: String,
     onQueryChange: (String) -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenDialpad: () -> Unit,
     onOpenDetail: (Long) -> Unit,
     onCallNumber: (String?, String) -> Unit,
+    listBottomPadding: Dp = 140.dp,
+    hasCallLogPermission: Boolean = true,
+    onRequestPermissions: () -> Unit = {},
 ) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            ScreenHeader(title = "Звонки", onSettings = onOpenSettings)
-            SearchField(
-                value = query,
-                onValueChange = onQueryChange,
-                placeholder = "Поиск по звонкам...",
-            )
-            Spacer(Modifier.height(8.dp))
-            LazyColumn(
-                contentPadding = PaddingValues(bottom = 140.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                items(calls, key = { it.id }) { entry ->
-                    CallRow(
-                        entry = entry,
-                        onCall = { onCallNumber(entry.contactName, entry.number) },
-                        onOpenDetail = { onOpenDetail(entry.id) },
+    Column(modifier = Modifier.fillMaxSize()) {
+        ScreenHeader(title = "Звонки", onSettings = onOpenSettings)
+        SearchField(
+            value = query,
+            onValueChange = onQueryChange,
+            placeholder = "Поиск по звонкам...",
+        )
+        Spacer(Modifier.height(8.dp))
+        when {
+            !hasCallLogPermission -> {
+                PermissionEmpty(
+                    text = "Нужен доступ к журналу звонков и контактам",
+                    onRequest = onRequestPermissions,
+                )
+            }
+            calls.isEmpty() -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(bottom = listBottomPadding),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "Пока нет звонков",
+                        color = CallMemoMuted,
+                        style = MaterialTheme.typography.bodyLarge,
                     )
                 }
             }
+            else -> {
+                LazyColumn(
+                    contentPadding = PaddingValues(bottom = listBottomPadding),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    items(calls, key = { it.id }) { entry ->
+                        CallRow(
+                            entry = entry,
+                            onCall = { onCallNumber(entry.contactName, entry.number) },
+                            onOpenDetail = { onOpenDetail(entry.id) },
+                        )
+                    }
+                }
+            }
         }
-        FloatingActionButton(
-            onClick = onOpenDialpad,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 22.dp, bottom = 96.dp),
-            shape = CircleShape,
-            containerColor = CallMemoBlue,
-            contentColor = Color.White,
-        ) {
-            Icon(Icons.Outlined.Dialpad, contentDescription = "Набор номера")
+    }
+}
+
+@Composable
+private fun PermissionEmpty(text: String, onRequest: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(text, color = CallMemoMuted, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(16.dp))
+        Button(onClick = onRequest) {
+            Text("Разрешить")
         }
     }
 }

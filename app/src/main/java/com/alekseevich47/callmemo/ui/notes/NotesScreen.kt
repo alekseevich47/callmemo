@@ -56,10 +56,6 @@ class NotesViewModel @Inject constructor(
     val notes: StateFlow<List<NoteItem>> = repository.observeNotes()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    init {
-        viewModelScope.launch { repository.ensureSeeded() }
-    }
-
     fun addNote(title: String, body: String) {
         viewModelScope.launch { repository.addNote(title, body) }
     }

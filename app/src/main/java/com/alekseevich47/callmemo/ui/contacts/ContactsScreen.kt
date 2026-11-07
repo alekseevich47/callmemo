@@ -44,7 +44,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
@@ -58,10 +57,6 @@ class ContactsViewModel @Inject constructor(
     val contacts: StateFlow<List<ContactItem>> = query
         .flatMapLatest { repository.observeContacts(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    init {
-        viewModelScope.launch { repository.ensureSeeded() }
-    }
 
     fun onQueryChange(value: String) {
         query.value = value

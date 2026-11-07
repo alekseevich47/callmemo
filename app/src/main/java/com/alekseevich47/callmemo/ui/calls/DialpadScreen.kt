@@ -1,32 +1,37 @@
 package com.alekseevich47.callmemo.ui.calls
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Backspace
 import androidx.compose.material.icons.outlined.Call
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -35,32 +40,54 @@ import com.alekseevich47.callmemo.ui.theme.CallMemoBlue
 import com.alekseevich47.callmemo.ui.theme.CallMemoInk
 import com.alekseevich47.callmemo.ui.theme.CallMemoMuted
 
+/**
+ * Opaque half-height dialpad sheet. Bottom padding reserves space for floating menu
+ * (and sticky player), so keys sit above chrome while the sheet fills behind it.
+ */
 @Composable
-fun DialpadRoute(
-    onBack: () -> Unit,
+fun DialpadSheet(
+    visible: Boolean,
+    bottomContentPadding: PaddingValues,
+    initialNumber: String = "",
+    onDismiss: () -> Unit,
     onCall: (String) -> Unit,
+    sheetModifier: Modifier = Modifier,
 ) {
-    var number by rememberSaveable { mutableStateOf("") }
+    if (!visible) return
+
+    var number by rememberSaveable { mutableStateOf(initialNumber) }
+    LaunchedEffect(initialNumber) {
+        if (initialNumber.isNotEmpty()) number = initialNumber
+    }
+
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
+        modifier = sheetModifier
+            .fillMaxWidth()
+            .fillMaxHeight(0.5f)
+            .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+            .background(Color.White)
+            .padding(bottomContentPadding)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        IconButton(onClick = onBack) {
-            Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Назад")
+        IconButton(onClick = onDismiss) {
+            Icon(
+                Icons.Outlined.KeyboardArrowDown,
+                contentDescription = "Скрыть клавиатуру",
+                tint = CallMemoMuted,
+            )
         }
-        Spacer(Modifier.height(24.dp))
         Text(
             text = number.ifBlank { " " },
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp),
-            style = MaterialTheme.typography.headlineLarge.copy(fontSize = 36.sp),
+                .padding(horizontal = 8.dp),
+            style = MaterialTheme.typography.headlineLarge.copy(fontSize = 30.sp),
             textAlign = TextAlign.Center,
             color = CallMemoInk,
             maxLines = 1,
         )
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(8.dp))
         val keys = listOf(
             listOf("1", "2", "3"),
             listOf("4", "5", "6"),
@@ -69,16 +96,19 @@ fun DialpadRoute(
         )
         keys.forEach { row ->
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = true),
                 horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 row.forEach { key ->
                     Text(
                         text = key,
                         modifier = Modifier
-                            .size(72.dp)
+                            .size(64.dp)
                             .clickable { number += key }
-                            .padding(top = 16.dp),
+                            .padding(top = 10.dp),
                         textAlign = TextAlign.Center,
                         style = MaterialTheme.typography.headlineMedium,
                         color = CallMemoInk,
@@ -86,9 +116,10 @@ fun DialpadRoute(
                 }
             }
         }
-        Spacer(Modifier.height(12.dp))
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 4.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
         ) {

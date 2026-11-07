@@ -1,23 +1,21 @@
 package com.alekseevich47.callmemo.data.repository
 
-import com.alekseevich47.callmemo.data.SeedData
 import com.alekseevich47.callmemo.data.local.CalendarItemEntity
-import com.alekseevich47.callmemo.data.local.CallLogEntity
 import com.alekseevich47.callmemo.data.local.CallMemoDatabase
 import com.alekseevich47.callmemo.data.local.NoteEntity
 import com.alekseevich47.callmemo.data.local.toDomain
 import com.alekseevich47.callmemo.data.secure.SecureSettingsStore
+import com.alekseevich47.callmemo.data.system.SystemCallLogDataSource
+import com.alekseevich47.callmemo.data.system.SystemContactsDataSource
 import com.alekseevich47.callmemo.domain.model.AppSettings
 import com.alekseevich47.callmemo.domain.model.CalendarItem
 import com.alekseevich47.callmemo.domain.model.CalendarItemType
 import com.alekseevich47.callmemo.domain.model.CallDetail
-import com.alekseevich47.callmemo.domain.model.CallDirection
 import com.alekseevich47.callmemo.domain.model.CallLogEntry
 import com.alekseevich47.callmemo.domain.model.ContactItem
 import com.alekseevich47.callmemo.domain.model.NoteItem
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -28,43 +26,17 @@ import javax.inject.Singleton
 class CallMemoRepository @Inject constructor(
     private val db: CallMemoDatabase,
     private val settingsStore: SecureSettingsStore,
+    private val systemCallLog: SystemCallLogDataSource,
+    private val systemContacts: SystemContactsDataSource,
 ) {
     val settings: Flow<AppSettings> = settingsStore.settings
 
-    suspend fun ensureSeeded() {
-        if (db.callLogDao().count() == 0) {
-            db.callLogDao().upsertAll(SeedData.calls())
-        }
-        if (db.contactDao().count() == 0) {
-            db.contactDao().upsertAll(SeedData.contacts())
-        }
-        if (db.calendarDao().count() == 0) {
-            db.calendarDao().upsertAll(SeedData.calendarItems())
-        }
-        if (db.noteDao().count() == 0) {
-            db.noteDao().upsertAll(SeedData.notes())
-        }
-    }
+    fun hasCallLogPermission(): Boolean = systemCallLog.hasPermission()
+    fun hasContactsPermission(): Boolean = systemContacts.hasPermission()
 
-    fun observeCalls(query: String): Flow<List<CallLogEntry>> {
-        val trimmed = query.trim()
-        val source = if (trimmed.isEmpty()) {
-            db.callLogDao().observeAll()
-        } else {
-            db.callLogDao().search(trimmed)
-        }
-        return source.map { list -> list.map { it.toDomain() } }
-    }
+    fun observeCalls(query: String): Flow<List<CallLogEntry>> = systemCallLog.observeCalls(query)
 
-    fun observeContacts(query: String): Flow<List<ContactItem>> {
-        val trimmed = query.trim()
-        val source = if (trimmed.isEmpty()) {
-            db.contactDao().observeAll()
-        } else {
-            db.contactDao().search(trimmed)
-        }
-        return source.map { list -> list.map { it.toDomain() } }
-    }
+    fun observeContacts(query: String): Flow<List<ContactItem>> = systemContacts.observeContacts(query)
 
     fun observeNotes(): Flow<List<NoteItem>> =
         db.noteDao().observeAll().map { list -> list.map { it.toDomain() } }
@@ -79,12 +51,12 @@ class CallMemoRepository @Inject constructor(
     }
 
     suspend fun callDetail(id: Long): CallDetail? {
-        val entity = db.callLogDao().getById(id) ?: return null
-        val history = db.callLogDao().historyForNumber(entity.number).map { it.toDomain() }
+        val entry = systemCallLog.getById(id) ?: return null
+        val history = systemCallLog.historyForNumber(entry.number)
         return CallDetail(
-            entry = entity.toDomain(),
+            entry = entry,
             history = history,
-            transcript = entity.transcript,
+            transcript = entry.transcriptPreview,
         )
     }
 
@@ -123,28 +95,6 @@ class CallMemoRepository @Inject constructor(
                     startsAtEpochMs = startsAt.atZone(zoneId).toInstant().toEpochMilli(),
                     type = type.name,
                     remindMinutesBefore = remindMinutesBefore,
-                ),
-            ),
-        )
-    }
-
-    suspend fun recordFinishedCall(
-        contactName: String?,
-        number: String,
-        direction: CallDirection,
-        durationSeconds: Long,
-        transcript: String? = null,
-    ) {
-        db.callLogDao().upsertAll(
-            listOf(
-                CallLogEntity(
-                    contactName = contactName,
-                    number = number,
-                    direction = direction.name,
-                    startedAtEpochMs = Instant.now().minusSeconds(durationSeconds.coerceAtLeast(0)).toEpochMilli(),
-                    durationSeconds = durationSeconds.coerceAtLeast(0),
-                    transcript = transcript,
-                    recordingUri = if (transcript != null) "demo://recorded" else null,
                 ),
             ),
         )

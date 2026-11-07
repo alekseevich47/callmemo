@@ -73,6 +73,8 @@ class SettingsViewModel @Inject constructor(
 fun SettingsRoute(
     onBack: () -> Unit,
     onTestCall: () -> Unit,
+    onRequestDefaultDialer: () -> Unit = {},
+    isDefaultDialer: Boolean = false,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
@@ -94,14 +96,27 @@ fun SettingsRoute(
         }
 
         SectionCard(cardModifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
-            Text("Демо", style = MaterialTheme.typography.titleMedium)
+            Text("Телефония", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
             Text(
-                "Проверь входящий → активный вызов, стрим и запись в журнал без реальной телефонии.",
+                text = if (isDefaultDialer) {
+                    "CallMemo — приложение для звонков по умолчанию"
+                } else {
+                    "Чтобы принимать и совершать звонки, сделай CallMemo звонилкой по умолчанию"
+                },
                 color = CallMemoMuted,
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.height(12.dp))
+            Button(
+                onClick = onRequestDefaultDialer,
+                enabled = !isDefaultDialer,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+            ) {
+                Text(if (isDefaultDialer) "Уже по умолчанию" else "Сделать звонилкой по умолчанию")
+            }
+            Spacer(Modifier.height(8.dp))
             Button(
                 onClick = onTestCall,
                 modifier = Modifier.fillMaxWidth(),
@@ -109,7 +124,7 @@ fun SettingsRoute(
             ) {
                 Icon(Icons.Outlined.Call, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("Тестовый звонок")
+                Text("Тестовый входящий UI")
             }
         }
 

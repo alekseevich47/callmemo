@@ -47,9 +47,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
-import com.alekseevich47.callmemo.data.repository.CallMemoRepository
 import com.alekseevich47.callmemo.domain.model.CallDirection
+import com.alekseevich47.callmemo.telecom.CallSessionTracker
 import com.alekseevich47.callmemo.ui.components.AvatarCircle
 import com.alekseevich47.callmemo.ui.theme.CallMemoBlue
 import com.alekseevich47.callmemo.ui.theme.CallMemoDanger
@@ -57,35 +56,13 @@ import com.alekseevich47.callmemo.ui.theme.CallMemoSuccess
 import com.alekseevich47.callmemo.util.TimeFormat
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
-class InCallViewModel @Inject constructor(
-    private val repository: CallMemoRepository,
-) : ViewModel() {
-    fun finishCall(
-        name: String,
-        number: String,
-        direction: CallDirection,
-        durationSeconds: Long,
-        streamed: Boolean,
-        onDone: () -> Unit,
-    ) {
-        viewModelScope.launch {
-            repository.recordFinishedCall(
-                contactName = name,
-                number = number,
-                direction = direction,
-                durationSeconds = durationSeconds,
-                transcript = if (streamed) {
-                    "Тестовая расшифровка: договорились созвониться завтра в 11:00 и купить хлеб."
-                } else {
-                    null
-                },
-            )
-            onDone()
-        }
+class InCallViewModel @Inject constructor() : ViewModel() {
+    fun finishCall(onDone: () -> Unit) {
+        CallSessionTracker.disconnect()
+        onDone()
     }
 }
 
@@ -178,16 +155,7 @@ fun InCallRoute(
             }
             Spacer(Modifier.weight(1f))
             IconButton(
-                onClick = {
-                    viewModel.finishCall(
-                        name = name,
-                        number = number,
-                        direction = direction,
-                        durationSeconds = seconds.toLong(),
-                        streamed = streamOn,
-                        onDone = onEnd,
-                    )
-                },
+                onClick = { viewModel.finishCall(onDone = onEnd) },
                 modifier = Modifier
                     .size(76.dp)
                     .clip(CircleShape)

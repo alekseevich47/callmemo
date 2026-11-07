@@ -29,10 +29,6 @@ class CallsViewModel @Inject constructor(
 
     val searchQuery: StateFlow<String> = query
 
-    init {
-        viewModelScope.launch { repository.ensureSeeded() }
-    }
-
     fun onQueryChange(value: String) {
         query.value = value
     }
@@ -49,7 +45,6 @@ class CallDetailViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            repository.ensureSeeded()
             _detail.value = repository.callDetail(callId)
         }
     }

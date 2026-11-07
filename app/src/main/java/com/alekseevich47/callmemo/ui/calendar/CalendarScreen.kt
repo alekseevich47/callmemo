@@ -85,10 +85,6 @@ class CalendarViewModel @Inject constructor(
         .map { list -> list.map { it.startsAt.toLocalDate() }.toSet() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
-    init {
-        viewModelScope.launch { repository.ensureSeeded() }
-    }
-
     fun addEvent(title: String, notes: String, day: LocalDate) {
         viewModelScope.launch {
             repository.addCalendarItem(

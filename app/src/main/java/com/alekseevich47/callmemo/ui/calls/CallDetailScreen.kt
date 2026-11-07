@@ -53,7 +53,7 @@ import com.alekseevich47.callmemo.util.TimeFormat
 fun CallDetailRoute(
     onBack: () -> Unit,
     onCall: (String?, String) -> Unit,
-    onPlay: (String, String, String?) -> Unit,
+    onPlay: (Long, String, String, String?, Long) -> Unit,
     viewModel: CallDetailViewModel = hiltViewModel(),
 ) {
     val detail by viewModel.detail.collectAsStateWithLifecycle()
@@ -212,7 +212,13 @@ fun CallDetailRoute(
             ) {
                 IconButton(
                     onClick = {
-                        onPlay(title, "Запись звонка", entry.recordingUri)
+                        onPlay(
+                            entry.id,
+                            entry.contactName.orEmpty().ifBlank { entry.number },
+                            entry.number,
+                            entry.recordingUri,
+                            entry.durationSeconds.coerceAtLeast(1) * 1000L,
+                        )
                     },
                     modifier = Modifier
                         .size(56.dp)

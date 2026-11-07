@@ -3,6 +3,7 @@ package com.alekseevich47.callmemo.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,23 +32,32 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.alekseevich47.callmemo.player.PlaybackUiState
 import com.alekseevich47.callmemo.ui.navigation.TopLevelDestination
 import com.alekseevich47.callmemo.ui.theme.CallMemoBlue
 import com.alekseevich47.callmemo.ui.theme.CallMemoInk
 import com.alekseevich47.callmemo.ui.theme.CallMemoMuted
+import com.alekseevich47.callmemo.util.TimeFormat
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 @Composable
 fun ScreenHeader(
@@ -129,8 +140,8 @@ private fun tabIcon(destination: TopLevelDestination): ImageVector = when (desti
 }
 
 /**
- * Telegram-like floating tabs: separate compact glass capsules.
- * Active tab highlights only icon + label color (no fill behind the tab).
+ * Separate floating glass chips over content (no plate / no inner rectangles).
+ * Active tab: only icon + label color.
  */
 @Composable
 fun GlassBottomBar(
@@ -141,16 +152,15 @@ fun GlassBottomBar(
     Row(
         modifier = barModifier
             .fillMaxWidth()
-            .padding(horizontal = 18.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            .padding(horizontal = 20.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         TopLevelDestination.entries.forEach { dest ->
-            val selected = dest == current
             GlassTabChip(
                 label = dest.label,
                 icon = tabIcon(dest),
-                selected = selected,
+                selected = dest == current,
                 onClick = { onSelect(dest) },
             )
         }
@@ -164,18 +174,16 @@ private fun GlassTabChip(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(22.dp)
+    val shape = RoundedCornerShape(20.dp)
     val tint = if (selected) CallMemoBlue else CallMemoMuted
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .widthIn(min = 64.dp, max = 78.dp)
-            .shadow(10.dp, shape, clip = false)
-            .clip(shape)
-            .background(Color.White.copy(alpha = 0.55f))
-            .border(1.dp, Color.White.copy(alpha = 0.85f), shape)
+            .widthIn(min = 68.dp, max = 76.dp)
+            .background(Color.White.copy(alpha = 0.62f), shape)
+            .border(width = 0.8.dp, color = Color.White.copy(alpha = 0.95f), shape = shape)
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 8.dp),
+            .padding(horizontal = 6.dp, vertical = 8.dp),
     ) {
         Icon(
             imageVector = icon,
@@ -202,18 +210,16 @@ fun InfoCircleButton(
     onClick: () -> Unit,
     contentDescription: String = "Подробнее",
 ) {
-    val shape = CircleShape
     Box(
         modifier = Modifier
-            .size(40.dp) // touch target
+            .size(40.dp)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Box(
             modifier = Modifier
                 .size(22.dp)
-                .border(1.dp, CallMemoMuted.copy(alpha = 0.7f), shape)
-                .clip(shape),
+                .border(1.dp, CallMemoMuted.copy(alpha = 0.7f), CircleShape),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
@@ -228,45 +234,153 @@ fun InfoCircleButton(
 
 @Composable
 fun StickyPlayerBar(
-    title: String,
-    subtitle: String,
-    playing: Boolean,
+    state: PlaybackUiState,
     onToggle: () -> Unit,
+    onSeek: (Long) -> Unit,
+    onCycleSpeed: () -> Unit,
+    onOpenDetail: () -> Unit,
+    onDismiss: () -> Unit,
     barModifier: Modifier = Modifier,
 ) {
-    Row(
+    var dragAccum by remember { mutableFloatStateOf(0f) }
+    val duration = state.durationMs.coerceAtLeast(1L)
+    val progress = (state.positionMs.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+    val shape = RoundedCornerShape(20.dp)
+
+    Column(
         modifier = barModifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(CallMemoInk)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = 14.dp)
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        if (abs(dragAccum) > 120f) onDismiss()
+                        dragAccum = 0f
+                    },
+                    onHorizontalDrag = { _, dragAmount ->
+                        dragAccum += dragAmount
+                    },
+                )
+            }
+            .background(CallMemoInk, shape)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onOpenDetail),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = state.contactName.ifBlank { state.number },
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = state.number,
+                    color = Color.White.copy(alpha = 0.7f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            TextButton(onClick = onCycleSpeed) {
+                Text(
+                    text = speedLabel(state.speed),
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            IconButton(onClick = onToggle) {
+                Icon(
+                    imageVector = if (state.playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
+                    contentDescription = if (state.playing) "Пауза" else "Играть",
+                    tint = Color.White,
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        WaveformSeek(
+            progress = progress,
+            onSeekFraction = { fraction -> onSeek((fraction * duration).toLong()) },
+        )
+        Spacer(Modifier.height(6.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
             Text(
-                text = title,
-                color = Color.White,
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = subtitle,
+                text = TimeFormat.duration(state.positionMs / 1000),
                 color = Color.White.copy(alpha = 0.7f),
                 style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
-        }
-        IconButton(onClick = onToggle) {
-            Icon(
-                imageVector = if (playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
-                contentDescription = if (playing) "Пауза" else "Играть",
-                tint = Color.White,
+            Text(
+                text = TimeFormat.duration(state.durationMs / 1000),
+                color = Color.White.copy(alpha = 0.7f),
+                style = MaterialTheme.typography.bodyMedium,
             )
         }
     }
+}
+
+@Composable
+private fun WaveformSeek(
+    progress: Float,
+    onSeekFraction: (Float) -> Unit,
+) {
+    val bars = remember {
+        listOf(
+            0.35f, 0.55f, 0.4f, 0.75f, 0.5f, 0.9f, 0.45f, 0.7f, 0.6f, 0.85f,
+            0.4f, 0.65f, 0.95f, 0.5f, 0.72f, 0.38f, 0.8f, 0.55f, 0.68f, 0.42f,
+            0.77f, 0.5f, 0.62f, 0.88f, 0.47f, 0.7f, 0.58f, 0.82f, 0.44f, 0.66f,
+        )
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(36.dp)
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragStart = { offset ->
+                        onSeekFraction((offset.x / size.width.toFloat()).coerceIn(0f, 1f))
+                    },
+                    onHorizontalDrag = { change, _ ->
+                        change.consume()
+                        onSeekFraction((change.position.x / size.width.toFloat()).coerceIn(0f, 1f))
+                    },
+                )
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            bars.forEachIndexed { index, amp ->
+                val filled = index <= (progress * (bars.lastIndex)).roundToInt()
+                Spacer(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height((12 + amp * 22).dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(
+                            if (filled) CallMemoBlue else Color.White.copy(alpha = 0.25f),
+                        ),
+                )
+            }
+        }
+    }
+}
+
+private fun speedLabel(speed: Float): String = when (speed) {
+    1.3f -> "x1.3"
+    1.5f -> "x1.5"
+    2f -> "x2"
+    else -> "x1"
 }
 
 @Composable
