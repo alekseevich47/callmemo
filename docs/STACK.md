@@ -1,178 +1,346 @@
-# CallMemo — стек и решения
+# CallMemo — стек, архитектура и правила проекта
 
-Статус: согласовано 2026-11-07. UI/функционал экранов: [UI.md](UI.md).
+> **Живой файл-правила.** Обновлять при каждом заметном изменении архитектуры, экранов, зависимостей или контрактов.  
+> Цель: не забывать, **что уже есть**, **где лежит** и **как применяется**.  
+> UI-спека / макеты: [UI.md](UI.md). Макеты: `docs/mockups/`.
 
-## Продукт
+**Последнее обновление:** 2026-11-07 (после sticky player / dialpad / real CallLog / default dialer / notification).
 
-Android-звонилка (полная замена штатной) + запись разговора + on-device расшифровка + AI-анализ (DeepSeek) + события/напоминания/заметки. Свой календарь в приложении + опциональная запись в системный календарь.
+---
 
-- Package: `com.alekseevich47.callmemo`
-- App name: CallMemo
-- Дистрибуция позже: RuStore + APK на сайте; сейчас — только sideload для разработки
+## 1. Продукт
 
-## Стек
+Android-звонилка (замена штатной) + прослушивание записей + (план) on-device STT + DeepSeek + свой календарь/заметки.
 
-| Слой | Выбор |
-|------|--------|
+| | |
+|--|--|
+| Package / applicationId | `com.alekseevich47.callmemo` (+ `.debug` в debug) |
+| App name | CallMemo |
+| minSdk / targetSdk / compileSdk | 29 / 35 / 35 |
+| versionName | `0.1.0` |
+| Дистрибуция сейчас | sideload APK из GitHub Actions |
+| Целевое устройство владельца | Tecno (HiOS / Transsion) |
+
+---
+
+## 2. Технологический стек (фактический)
+
+| Слой | Выбор в коде |
+|------|----------------|
 | Язык / UI | Kotlin, Jetpack Compose, Material 3 |
-| Архитектура | Clean Architecture + MVVM |
-| DI | Hilt |
-| Async | Coroutines + Flow |
-| Локальные данные | Room (звонки, транскрипты, заметки, свой календарь), DataStore (настройки) |
-| Секреты | AndroidX Security Crypto / EncryptedSharedPreferences (DeepSeek API key) |
-| Звонилка | `ROLE_DIALER` + `InCallService` |
-| Запись | A (OEM import) → C (встроенный ADB / опц. Shizuku) → всегда H |
-| STT | sherpa-onnx (+ модели по выбору), загрузка моделей отдельно от APK |
-| AI | DeepSeek Chat API, ключ в настройках; позже свой бэкенд |
-| Календарь | свой в Room + `CalendarContract` по флагу в настройках |
-| Фон | WorkManager (транскрипт, анализ), уведомления о готовности |
-| minSdk / targetSdk | 29 / 35 |
-| Сборка | Gradle + GitHub Actions → debug/release APK артефакт |
+| Архитектура | Clean-ish + MVVM (UI → ViewModel → Repository → data sources) |
+| DI | Hilt (`@HiltAndroidApp`, `@AndroidEntryPoint`, `@HiltViewModel`) |
+| Async | Coroutines + Flow / StateFlow |
+| Навигация | Navigation Compose |
+| Локальные данные | **Room** — заметки и календарь; системный **CallLog / Contacts** для звонков и контактов |
+| Настройки / секреты | **EncryptedSharedPreferences** (`SecureSettingsStore`); зависимость DataStore есть, **не используется** |
+| Звонилка | `ROLE_DIALER` + `InCallService` + `ConnectionService` |
+| Плеер | Media3 ExoPlayer + FGS `PlaybackService` |
+| Permissions UI | Accompanist permissions |
+| Сборка | Gradle 8.x, JDK 17, KSP |
+| CI | `.github/workflows/android.yml` → artifact `callmemo-debug-apk` |
 
-Требования к runtime: без зависаний UI — тяжёлая работа только off-main; журнал с пагинацией; загрузка моделей и ASR не блокируют интерфейс.
+**Не подключено в код (только план / настройки-заглушки):** sherpa-onnx, WorkManager, OkHttp download моделей, DeepSeek HTTP-клиент, встроенный ADB/Shizuku recorder, SAF picker папки записей, Share-receiver аудио.
 
-## Запись разговоров
+---
 
-### Политика приоритетов
+## 3. Карта пакетов
 
-1. **A — OEM/штатная запись**: пресеты папок + MediaStore + ручной выбор папки; привязка файла к звонку по времени/номеру.
-2. **C — привилегированный захват** (если A недоступна): **встроенный Wireless Debugging / ADB в CallMemo** (без второго приложения) + опционально внешний Shizuku.
-3. **H — всегда**: диктовка после звонка, импорт голосовых/аудиофайлов вручную.
+Корень: `app/src/main/java/com/alekseevich47/callmemo/`
 
-Микрофон «с динамика» как основной путь — не используем.
+```
+CallMemoApp.kt                 # @HiltAndroidApp
+MainActivity.kt                # intents → CallMemoAppRoot
+di/AppModule.kt                # Room DB + SecureSettingsStore
 
-### Почему нельзя «скрипт автовключения» записи
+domain/model/Models.kt         # доменные типы
 
-Встроенную запись звонков включает **системный/OEM Phone**, не 3rd-party app. Публичного API «включи record all calls» нет:
+data/
+  repository/CallMemoRepository.kt
+  local/                       # Room: Entities, Daos, Mappers, CallMemoDatabase
+  system/                      # SystemCallLogDataSource, SystemContactsDataSource
+  recording/                   # OemRecordingPaths, RecordingLocator
+  secure/SecureSettingsStore.kt
+  SeedData.kt                  # НЕ используется (legacy mock)
 
-- регион / оператор / модель могут скрывать пункт;
-- настройки живут в другом приложении (Samsung Phone, MIUI Dialer, Google Phone…);
-- Google Phone кладёт файлы в **private storage** (`…/com.google.android.dialer/…`) — стороннее приложение их не читает без Share/root.
+telecom/
+  DialerRoleHelper.kt          # ROLE_DIALER, PhoneAccount, placeCall
+  TelecomServices.kt           # InCallService, ConnectionService, CallSessionTracker
 
-Что делаем вместо «магического включения»:
+player/
+  CallPlaybackController.kt    # singleton ExoPlayer + state
+  PlaybackService.kt           # foreground notification
+  WaveformAnalyzer.kt          # амплитуды из файла
+  ProximityPlaybackEffect.kt   # датчик приближения → earpiece + screen off
 
-1. **Автодетект вендора/модели** (`Build.MANUFACTURER`, `MODEL`, какая app — default Phone).
-2. **Пресеты папок** под вендора (см. ниже) + проверка существования + MediaStore query по `DATE_ADDED` около времени звонка.
-3. **Мастер первого запуска** (минимум тапов):
-   - «Проверяем штатную запись…»
-   - если папка есть и есть файлы → A готова;
-   - если папки нет → пошаговая инструкция под модель + кнопка «Открыть настройки телефона» (deep-link / `ACTION_MAIN` в известные activity, где возможно);
-   - тест: «Сделай короткий звонок с записью» → авто-поиск файла;
-   - если OEM недоступен → предложить **C (встроенный ADB)** мастером «Настроить захват» (без установки второго приложения);
-   - запасной вариант C: внешний Shizuku, если уже установлен;
-   - в любом случае показать **H**: «Диктовать» / «Загрузить аудио».
-4. **Выбор папки пользователем** (`Storage Access Framework` / tree URI) — сохраняем persistable permission.
-5. Опционально: принимать **Share** аудио в CallMemo (для Google Phone «Поделиться записью»).
-6. **Runtime-сканер**: после звонка искать новые audio в MediaStore (mime audio/*, имя ~ call/rec/phone, время ± окна звонка) даже если пресет не совпал — так ловим неизвестные вендоры.
+ui/
+  CallMemoAppRoot.kt           # NavHost + chrome (tabs / player / dialpad / FAB)
+  navigation/NavDestinations.kt
+  components/CommonUi.kt       # glass bar, sticky player, SearchField, FAB pad
+  calls/                       # Calls, CallDetail, Dialpad, ViewModels
+  contacts/ ContactsScreen.kt
+  calendar/ CalendarScreen.kt
+  notes/ NotesScreen.kt
+  settings/ SettingsScreen.kt
+  incall/ InCallScreens.kt
+  player/ PlayerViewModel.kt
+  theme/ Theme.kt              # Manrope, light palette
 
-Автоматически «включить запись за пользователя» скриптом **нельзя** на не-rooted устройстве. Максимум — увести в нужный экран и проверить результат.
+util/ PhoneNumberUtils.kt, TimeFormat.kt
+```
 
-### Целевое устройство владельца
+Тесты: `app/src/test/...` — `OemRecordingPathsTest`, `PhoneNumberUtilsTest`, `TimeFormatTest`.
 
-**Tecno** (HiOS / Transsion, семейство с Infinix и itel). Типичные пути:
+---
 
-- `Music/PhoneRecorod` (исторический опечаточный путь на многих Tecno)
-- `Music/PhoneRecord`
-- `Call`
-- `Recordings/Call`
-- `Record/Call`
+## 4. Архитектура и потоки данных
 
-В мастере Tecno: Phone → ⚙ → Enable auto call recording (формулировка зависит от прошивки) → после первого записанного звонка автопоиск файла.
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Compose UI (screens) + CallMemoAppRoot chrome               │
+│       │                                                      │
+│       ▼                                                      │
+│  Hilt ViewModels                                             │
+│       │                                                      │
+│       ▼                                                      │
+│  CallMemoRepository                                          │
+│    ├─ SystemCallLogDataSource  ← CallLog.Calls               │
+│    ├─ SystemContactsDataSource ← ContactsContract            │
+│    ├─ Room NoteDao / CalendarDao                             │
+│    ├─ SecureSettingsStore                                    │
+│    └─ RecordingLocator (+ OemRecordingPaths)                 │
+│                                                              │
+│  PlayerViewModel → CallPlaybackController (singleton)        │
+│       ├─ ExoPlayer / WaveformAnalyzer                        │
+│       ├─ PlaybackService (notification)                      │
+│       └─ ProximityPlaybackEffect (из UI при playing)         │
+│                                                              │
+│  DialerRoleHelper / CallSessionTracker ← Telecom             │
+└─────────────────────────────────────────────────────────────┘
+```
 
-### Пресеты папок (максимально широкий стартовый каталог)
+### Правила слоёв
 
-Пути относительно внутреннего хранилища. Список живёт в коде как таблица `OemRecordingPaths` + детект по `Build.MANUFACTURER` / `BRAND` / default dialer package.
+1. **Журнал звонков и контакты** — только из системных провайдеров (не Room).  
+2. **Room `call_logs` / `contacts`** — сущности и DAO есть, **репозиторий их не использует** (мертвый код до миграции/кэша).  
+3. **Заметки и календарь** — только Room.  
+4. **Плеер** — глобальный singleton; не привязан к жизненному циклу одного экрана.  
+5. **SeedData** — не вызывать; реальных моков в runtime нет.
 
-| Группа | Вендоры | Типичные пути |
-|--------|---------|---------------|
-| Transsion | **Tecno**, Infinix, itel | `Music/PhoneRecorod`, `Music/PhoneRecord`, `Call`, `Recordings/Call`, `Record/Call` |
-| Samsung | Samsung | `Recordings/Call`, `Call`, `Music/Call` |
-| Xiaomi | Xiaomi, Redmi, POCO | `MIUI/sound_recorder/call_rec`, `Recordings/Call` |
-| BBK | Vivo, iQOO | `Record/Call`, `VoiceRecorder/Calls`, `Call` |
-| BBK/OPlus | Oppo, Realme | `Music/Recordings/Call Recordings`, `Recordings/Call Recordings`, `Record/Call` |
-| OnePlus | OnePlus, ODialer | `Music/Recordings/Call Recordings`, `Record/PhoneRecord`, `Recordings/Call Recordings` |
-| Huawei | Huawei, Honor | `Recordings/Call`, `Call`, `Sounds/CallRecord` |
-| Motorola | Motorola, Lenovo | `CallRecordings`, `Music/CallRecordings`, `Recordings` |
-| Sony | Sony | `Music/Call Recording`, `Record/Call` |
-| Nokia / HMD | Nokia | `Call`, `Recordings/Call` (часто Google Phone) |
-| Nothing | Nothing | часто Google Phone → private |
-| ASUS | ASUS, ROG | `Recordings/Call`, `CallRecordings` |
-| LG (legacy) | LG | `Voice_Recorder/CallRec`, `Call` |
-| Meizu | Meizu | `Recorder/Call`, `Call` |
-| ZTE / Nubia | ZTE, Nubia, RedMagic | `CallRecord`, `Recordings/Call` |
-| Google / AOSP | Pixel и любой с Google Phone | **private** `com.google.android.dialer/.../callrecording` → только Share / C / H |
+---
 
-Дополнительно всегда:
+## 5. Навигация
 
-- MediaStore query без привязки к папке;
-- пользовательский tree URI;
-- Share-intent receiver для аудио.
+### Табы (`TopLevelDestination`)
 
-Каталог расширяем по мере тестов; неизвестный вендор → сканер + выбор папки, не «нет поддержки».
+| Route | Экран |
+|-------|--------|
+| `calls` | Журнал |
+| `contacts` | Контакты |
+| `calendar` | Календарь |
+| `notes` | Заметки |
 
-### Вариант C — можно ли «заложить Shizuku в свой APK»?
+### Вторичные (`Routes`)
 
-**Привилегии Shizuku в обычный APK «просто вшить» нельзя.**  
-Shizuku сам по себе не даёт права: их даёт пользователь **shell** через ADB / Wireless debugging (или root). Без этого шага ни Shizuku, ни наше приложение `VOICE_CALL` не пишут.
+| Route | Назначение |
+|-------|------------|
+| `call_detail/{callId}` | Деталка звонка |
+| `settings` | Настройки |
+| `in_call/{name}/{number}/{direction}` | Активный вызов |
+| `incoming/{name}/{number}` | Входящий |
+| `dialpad` | **Константа есть, но dialpad — overlay**, не destination NavHost |
 
-Но **механику Shizuku можно встроить в CallMemo**, не требуя второе приложение:
+Старт: `calls`. Intents `tel:` / `ACTION_DIAL` → открывают dialpad sheet с номером.  
+Telecom → `MainActivity.ACTION_SHOW_INCOMING` / `SHOW_IN_CALL` / `OPEN_CALL_DETAIL`.
 
-| Подход | Что в APK | Действия пользователя | Отдельный Shizuku? |
-|--------|-----------|------------------------|--------------------|
-| **C1 — встроенный ADB (рекомендуем как основной C)** | ADB-клиент + маленький recorder-daemon (как CallVault / JemRec / skvalex Built-in ADB) | Один раз: Developer options → Wireless debugging → парный 6-значный код в нашем мастере | Нет |
-| **C2 — клиент Shizuku API** | Только library `rikka.shizuku` | Установить и запустить Shizuku, выдать право CallMemo | Да |
-| **C3 — root** | optional su helper | root / Magisk | Нет |
+---
 
-**Решение для CallMemo:** реализовать **C1 (встроенный Wireless Debugging)** как основной «про»-путь без второго приложения; **C2** — если Shizuku уже есть; **C3** — позже experimental.
+## 6. UI chrome — обязательные правила
 
-Ограничения C1 (честно в UI):
+Код: `ui/CallMemoAppRoot.kt`, `ui/components/CommonUi.kt`.
 
-- Android 11+ для Wireless debugging;
-- после перезагрузки обычно нужна краткая сессия по Wi‑Fi, чтобы снова поднять daemon;
-- pairing — разово, но без него система права не отдаст (это ограничение Android, не нашей лени).
+### Glass bottom bar
 
-Итог для пользователя Tecno: сначала A (штатная запись HiOS — часто есть) → если нет/не находит файл → мастер C1 внутри CallMemo → всегда H.
+- Одна полупрозрачная белая **плашка** под чипами (frosted: alpha ~0.58 + blur wash на API 31+).
+- Активный таб: только цвет иконки/текста (синий), без заливки чипа.
+- Ripple со **скруглёнными** углами (`clip` + `ripple`).
+- Плашка **поверх** списка (контент виден под ней / скроллится под chrome).
 
-## STT (on-device)
+### Sticky player
 
-- Движок-рантайм: **sherpa-onnx**.
-- В настройках: **выпадающий список моделей** (GigaAM, Vosk small, Whisper small/turbo, streaming T-one и т.д. — список версионируем).
-- Отдельный флаг: **стрим-режим** (онлайн-распознавание во время/сразу; иначе — offline после файла).
-- Модель не скачана → скачивание в фоне (OkHttp/WorkManager), **progress в UI + notification**, UI не блокируем; по готовности — уведомление.
-- Флаг: **авто-расшифровка после появления записи** vs **только по кнопке**.
-- Язык: преимущественно RU, модели с учётом code-switch EN в русской речи (Whisper как опция).
-- Дополнительно: загрузка голосовых файлов + диктовка микрофоном (путь H).
+- Компактная тёмная плашка; play слева от волны; скорость x1→x1.3→x1.5→x2.
+- Волна = **реальные амплитуды** (`WaveformAnalyzer`), progress = позиция воспроизведения.
+- Свайп в сторону с анимацией; порог закрытия **≥ 50%** ширины, иначе snap back.
+- **Показывать** sticky только **вне** деталки того звонка, который сейчас играет.  
+  На деталке того же `callId` — только inline-плеер в карточке; sticky скрыт.
+- При уходе с этой деталки sticky снова появляется (если `visible`).
+- При открытой клавиатуре: dialpad **поверх** player (zIndex 3 > 1), воспроизведение **не** останавливать; при закрытии шторки player снова виден под ней.
 
-## AI (DeepSeek)
+### Dialpad sheet
 
-- Ключ API в настройках (зашифрованно).
-- Извлекать: даты, имена, события, задачи.
-- Создавать: события, напоминания, заметки (свой календарь; опционально системный).
+- Opaque half-sheet (~58% высоты, min ~420dp), не fullscreen.
+- Grabber сверху; тянуть вниз — живой offset; dismiss при **≥ 50%** высоты, иначе назад.
+- Backspace **справа в поле номера**, только если есть цифры.
+- Закрывать при смене любого таба.
+- Bottom padding шторки = место под **табы** (player не резервировать — клавиатура поверх).
 
-## Календарь и аккаунт
+### FAB
 
-- Свой календарь в приложении (Room).
-- Интеграция с системным `CalendarContract` — выбор в настройках.
-- Пока только локально на устройстве, без облачного аккаунта CallMemo.
+- Константа: `ChromeFabBottomPadding = 90.dp` — чуть ниже исторического ~96.dp, **не** у меню.
+- FAB клавиатуры / контакта / события / заметки — **один уровень** (`bottom = ChromeFabBottomPadding`).
+- С включённым sticky player FAB клавиатуры **выше** плашки (`90 + 58`).
+- На Calls: при скролле вниз FAB плавно скрывается, вверх — появляется; при старте видна.
+- При переходе на Calls FAB и chrome табов появляются через общий fade (не раньше чужих FAB).
 
-## Доставка APK (важно для разработки с телефона)
+### Proximity
 
-**Участие в сборке с телефона не нужно.**
+- Пока идёт воспроизведение (`playing`): поднесение к уху → `PROXIMITY_SCREEN_OFF_WAKE_LOCK` + маршрут **earpiece** (`USAGE_VOICE_COMMUNICATION`).
+- Отвели — обычный media-маршрут и яркость.
 
-Cloud Agent / CI собирают APK на сервере:
+### Уведомление воспроизведения
 
-1. Push в GitHub → GitHub Actions → артефакт `app-debug.apk` (позже signed release).
-2. Ссылка на скачивание: Actions artifact или GitHub Release.
-3. На телефоне: скачать → установить (разрешить установку из браузера/GitHub).
+- `PlaybackService` (FGS mediaPlayback), layout `res/layout/notification_playback.xml`.
+- Аватар/иконка, имя, номер, seek bar, время elapsed/total, play/pause по центру, **AI ✦** → деталка.
+- Свайп уведомления / deleteIntent → `controller.hide()` (стоп).
 
-Позже, когда будет ПК: тот же Gradle локально / Android Studio. Пока достаточно «открыл ссылку → установил APK».
+---
 
-## Следующие шаги разработки
+## 7. Ключевые классы и контракты
 
-1. Каркас Android-проекта + CI APK.
-2. Макеты UI от владельца → Compose-экраны.
-3. Dialer role + журнал звонков.
-4. OEM folder detector + SAF picker + import pipeline.
-5. Shizuku opt-in мастер.
-6. STT модель-менеджер + WorkManager транскрипт.
-7. DeepSeek анализ + свой календарь / CalendarContract.
+### Repository
+
+`CallMemoRepository`:
+
+- `observeCalls(query, fromEpochMs?, toEpochMs?)`
+- `observeContacts(query)`
+- `callDetail(id)` — entry + history + попытка `RecordingLocator`
+- `observeNotes` / `addNote`
+- `observeCalendar` / `observeCalendarDay` / `addCalendarItem`
+- `settings` / `updateSettings` / `maskedApiKey`
+
+### System CallLog
+
+- ContentObserver на `CallLog.Calls`.
+- Лимит ~300 записей; поиск по имени/номеру; фильтр дат (включительно по дню).
+- History по номеру: `PhoneNumberUtils.sameSubscriber` (хвост цифр ≥ 7).
+
+### Recording
+
+- **A (сделано):** `RecordingLocator` — MediaStore в окне времени звонка + скан OEM-папок из `OemRecordingPaths`.
+- Если файла нет → синтетический WAV на **длительность звонка** (не фиксированные 20 с) — чтобы UI/звук не ломались.
+- **C / H:** план (см. §10).
+
+### Playback controller API
+
+```
+play(callId, contactName, number, uri?, durationHintMs, startedAtEpochMs)
+toggle() / seekTo() / cycleSpeed() / setEarpiece() / hide()
+state: PlaybackUiState(visible, callId, name, number, uri, playing,
+                       positionMs, durationMs, speed, amplitudes, earpiece)
+```
+
+### Telecom
+
+- `DialerRoleHelper.isDefaultDialer()` / `createRequestIntent()` / `registerPhoneAccount()` / `placeCall()`.
+- `CallMemoInCallService` поднимает UI; `CallSessionTracker` для answer/reject/disconnect.
+- In-call кнопки mute/speaker/hold… пока **локальный UI-state**, не полная привязка к Telecom API.
+
+---
+
+## 8. Экраны — что работает
+
+| Экран | Статус |
+|-------|--------|
+| Звонки + поиск + фильтр дат | ✅ системный CallLog |
+| Dialpad overlay | ✅ |
+| Деталка: история (3 + expand), SMS/Ещё/share, inline play | ✅ |
+| Sticky player + notification + proximity | ✅ |
+| Контакты (системные) | ✅; FAB «добавить» — stub |
+| Календарь месяц + события Room | ✅ ручное создание |
+| Заметки Room | ✅ |
+| Настройки: dialer role, API key, флаги STT/source | ✅ persist; download/STT/DeepSeek — нет |
+| In-call / Incoming UI | ✅ визуал; Stream — placeholder |
+| Тестовый входящий из настроек | ✅ только UI-навигация |
+
+---
+
+## 9. Разрешения и компоненты (Manifest)
+
+**Permissions:** INTERNET, READ/WRITE_CALL_LOG, READ_CONTACTS, CALL_PHONE, READ_PHONE_STATE, MANAGE_OWN_CALLS, RECORD_AUDIO, FOREGROUND_SERVICE (+ MICROPHONE, MEDIA_PLAYBACK), POST_NOTIFICATIONS, READ/WRITE_CALENDAR, READ_MEDIA_AUDIO / READ_EXTERNAL_STORAGE(≤32), WAKE_LOCK.
+
+**Components:**
+
+- `MainActivity` — LAUNCHER, DIAL/VIEW `tel`, CALL_BUTTON  
+- `CallMemoInCallService` — `BIND_INCALL_SERVICE`, `IN_CALL_SERVICE_UI`  
+- `CallMemoConnectionService` — `BIND_TELECOM_CONNECTION_SERVICE`  
+- `PlaybackService` — FGS `mediaPlayback`, not exported  
+
+---
+
+## 10. Политика записи (продуктовая, A → C → H)
+
+Согласовано в чате; **в коде сейчас только поиск A + tone fallback**.
+
+1. **A — OEM/штатная запись** — пресеты папок + MediaStore + (план) SAF tree URI.  
+2. **C — привилегированный захват** — C1 встроенный Wireless Debugging/ADB (основной план), C2 Shizuku, C3 root.  
+3. **H — всегда** — диктовка / импорт файла / Share.
+
+Автоматически «включить системную запись» скриптом нельзя. Мастер первого запуска — в плане.
+
+Пресеты вендоров: `OemRecordingPaths` (Tecno/Infinix/itel, Samsung, Xiaomi, Vivo, Oppo/Realme, OnePlus, Huawei/Honor, …).
+
+---
+
+## 11. План: STT / AI / фон (ещё не в коде)
+
+| Тема | Решение |
+|------|---------|
+| STT runtime | sherpa-onnx; модели в настройках (`SttModelId`) |
+| Стрим | флаг `streamModeEnabled` |
+| Авто-расшифровка | флаг `autoTranscribe` |
+| Скачивание моделей | фон + progress + notification (WorkManager / OkHttp) |
+| AI | DeepSeek Chat API; ключ уже в EncryptedSharedPreferences |
+| Результат AI | события / напоминания / заметки в свой календарь; опц. CalendarContract |
+| Фон | WorkManager: транскрипт + анализ |
+
+---
+
+## 12. CI и APK
+
+```
+push main | cursor/**  +  pull_request
+  → testDebugUnitTest
+  → assembleDebug
+  → artifact name: callmemo-debug-apk
+    path: app/build/outputs/apk/debug/*.apk
+```
+
+Локально: `./gradlew assembleDebug`.
+
+---
+
+## 13. Ловушки (не сломать при правках)
+
+1. Не возвращать **SeedData** / `ensureSeeded` в runtime.  
+2. Не путать DataStore-зависимость с реальным store настроек (EncryptedSharedPreferences).  
+3. Не навигировать на `Routes.DIALPAD` — использовать overlay state.  
+4. Sticky player ↔ деталка: скрывать sticky только для **того же** `callId`.  
+5. Dialpad поверх player без `hide()` плеера.  
+6. FAB: `90.dp` база; не прижимать к меню (~80 и ниже).  
+7. Длительность плеера = media duration / duration звонка; **не** хардкодить 20 с.  
+8. Room call_logs/contacts — не писать «в журнал» из InCall вместо системного CallLog, пока нет явной стратегии кэша.
+
+---
+
+## 14. Как обновлять этот файл
+
+При каждом PR / итерации агента, если менялось:
+
+- зависимость / minSdk / сервис / permission → §2, §9  
+- пакет / класс / поток данных → §3, §4, §7  
+- chrome / FAB / player / dialpad → §6  
+- статус фичи → §8, §10, §11  
+- ловушка → §13  
+
+В начале файла обновить строку **«Последнее обновление»**.  
+Не дублировать длинные UI-промпты — они в [UI.md](UI.md).
