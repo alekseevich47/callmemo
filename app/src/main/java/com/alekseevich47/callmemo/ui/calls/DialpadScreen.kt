@@ -81,13 +81,13 @@ fun DialpadSheet(
     var dismissing by remember { mutableStateOf(false) }
     var entered by remember { mutableStateOf(false) }
     BoxWithConstraints(modifier = sheetModifier.fillMaxWidth()) {
-        val minSheetPx = with(density) { 420.dp.toPx() }
-        val maxAllowedPx = constraints.maxHeight * 0.72f
-        val targetPx = constraints.maxHeight * 0.58f
+        // Slightly taller sheet so the call FAB clears the glass tabs without
+        // lifting the whole sheet above the menu.
+        val minSheetPx = with(density) { 460.dp.toPx() }
+        val maxAllowedPx = constraints.maxHeight * 0.76f
+        val targetPx = constraints.maxHeight * 0.62f
         val sheetHeightPx = max(minSheetPx, targetPx).coerceAtMost(maxAllowedPx)
         val sheetHeight = with(density) { sheetHeightPx.toDp() }
-        // Extra lift so call FAB clears the glass tabs.
-        val callButtonClearance = PaddingValues(bottom = 28.dp)
 
         // Enter from below once; never snap back to 0 after a dismiss animation.
         LaunchedEffect(sheetHeightPx) {
@@ -129,7 +129,6 @@ fun DialpadSheet(
                 .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
                 .background(Color.White)
                 .padding(bottomContentPadding)
-                .padding(callButtonClearance)
                 .padding(horizontal = 12.dp)
                 .pointerInput(sheetHeightPx, dismissing) {
                     if (dismissing) return@pointerInput

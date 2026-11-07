@@ -194,9 +194,9 @@ Telecom → `MainActivity.ACTION_SHOW_INCOMING` / `SHOW_IN_CALL` / `OPEN_CALL_DE
 ### Dialpad sheet
 
 - На разделе **Звонки** открывается сразу; скролл списка вниз — плавно уезжает вниз; FAB клавиатуры **всегда** видна в закрытом состоянии.
-- Opaque half-sheet (~58% высоты, min ~420dp); enter/exit slide **внутри** sheet.
+- Opaque half-sheet (~62% высоты, min ~460dp — чуть выше прежних 58%/420dp); enter/exit slide **внутри** sheet.
 - Dismiss при **≥ 30%** высоты на отпускании, иначе snap back.
-- Extra bottom padding (~+28dp + tabs) — кнопка вызова **не** наезжает на меню.
+- Кнопка вызова не пересекается с меню за счёт **высоты шторки** (не подъёма над меню); bottom pad = tabs.
 - Номер по центру над клавишами; backspace справа.
 - Закрывать при уходе с Calls; при возврате на Calls — снова открыть.
 
@@ -275,7 +275,7 @@ state: PlaybackUiState(visible, callId, name, number, uri, playing,
 | Экран | Статус |
 |-------|--------|
 | Звонки + поиск + фильтр дат | ✅; dialpad open-by-default; scroll hides sheet |
-| Dialpad overlay | ✅; swipe ≥30%; raised above tabs; FAB when closed |
+| Dialpad overlay | ✅; swipe ≥30%; taller sheet (~62%/460dp); FAB when closed |
 | Деталка: sticky имя/номер, collapsing avatar, history, inline play | ✅ |
 | Sticky player + notification + proximity | ✅; replay after end; no beep fallback |
 | Контакты (системные) | ✅; FAB «добавить» — stub (`ChromeFab`) |

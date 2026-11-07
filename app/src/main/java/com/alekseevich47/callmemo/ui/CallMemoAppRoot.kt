@@ -188,8 +188,8 @@ fun CallMemoAppRoot(
     val tabsReserve = if (showTabs) 78.dp else 0.dp
     val playerReserve = if (showPlayer && !dialpadMounted) 64.dp else 0.dp
     val chromeBottom = tabsReserve + playerReserve + 12.dp
-    // Dialpad sits under tabs; extra pad so call FAB clears glass menu.
-    val dialpadBottomPad = tabsReserve + 20.dp
+    // Dialpad sits under tabs; sheet height (not lift) clears the call FAB.
+    val dialpadBottomPad = tabsReserve + 12.dp
 
     fun openDialpad(seed: String = "") {
         dialpadSeed = seed
