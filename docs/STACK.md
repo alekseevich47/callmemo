@@ -21,7 +21,7 @@ Android-звонилка (полная замена штатной) + запис
 | Локальные данные | Room (звонки, транскрипты, заметки, свой календарь), DataStore (настройки) |
 | Секреты | AndroidX Security Crypto / EncryptedSharedPreferences (DeepSeek API key) |
 | Звонилка | `ROLE_DIALER` + `InCallService` |
-| Запись | A (OEM import) → C (Shizuku) → всегда H (диктовка / импорт аудио) |
+| Запись | A (OEM import) → C (встроенный ADB / опц. Shizuku) → всегда H |
 | STT | sherpa-onnx (+ модели по выбору), загрузка моделей отдельно от APK |
 | AI | DeepSeek Chat API, ключ в настройках; позже свой бэкенд |
 | Календарь | свой в Room + `CalendarContract` по флагу в настройках |
@@ -35,8 +35,8 @@ Android-звонилка (полная замена штатной) + запис
 
 ### Политика приоритетов
 
-1. **A — OEM/штатная запись**: следим за известными папками и MediaStore, привязываем файл к звонку по времени/номеру.
-2. **C — Shizuku** (если A недоступна или папка пуста): привилегированный захват через shell/Shizuku.
+1. **A — OEM/штатная запись**: пресеты папок + MediaStore + ручной выбор папки; привязка файла к звонку по времени/номеру.
+2. **C — привилегированный захват** (если A недоступна): **встроенный Wireless Debugging / ADB в CallMemo** (без второго приложения) + опционально внешний Shizuku.
 3. **H — всегда**: диктовка после звонка, импорт голосовых/аудиофайлов вручную.
 
 Микрофон «с динамика» как основной путь — не используем.
@@ -58,44 +58,80 @@ Android-звонилка (полная замена штатной) + запис
    - если папка есть и есть файлы → A готова;
    - если папки нет → пошаговая инструкция под модель + кнопка «Открыть настройки телефона» (deep-link / `ACTION_MAIN` в известные activity, где возможно);
    - тест: «Сделай короткий звонок с записью» → авто-поиск файла;
-   - если OEM недоступен → предложить **C (Shizuku)** одной кнопкой «Настроить захват без root»;
+   - если OEM недоступен → предложить **C (встроенный ADB)** мастером «Настроить захват» (без установки второго приложения);
+   - запасной вариант C: внешний Shizuku, если уже установлен;
    - в любом случае показать **H**: «Диктовать» / «Загрузить аудио».
 4. **Выбор папки пользователем** (`Storage Access Framework` / tree URI) — сохраняем persistable permission.
 5. Опционально: принимать **Share** аудио в CallMemo (для Google Phone «Поделиться записью»).
+6. **Runtime-сканер**: после звонка искать новые audio в MediaStore (mime audio/*, имя ~ call/rec/phone, время ± окна звонка) даже если пресет не совпал — так ловим неизвестные вендоры.
 
 Автоматически «включить запись за пользователя» скриптом **нельзя** на не-rooted устройстве. Максимум — увести в нужный экран и проверить результат.
 
-### Пресеты папок (стартовый набор, расширяем по устройствам)
+### Целевое устройство владельца
 
-| Вендор / dialer | Типичный путь |
-|-----------------|---------------|
-| Samsung Phone | `Recordings/Call` (старые: `Call`) |
-| Xiaomi / Redmi / POCO (MIUI dialer) | `MIUI/sound_recorder/call_rec` |
-| Vivo / iQOO | `Record/Call`, `VoiceRecorder/Calls` |
-| Oppo / Realme | `Music/Recordings/Call Recordings` |
-| OnePlus / ODialer | `Music/Recordings/Call Recordings`, старые: `Record/PhoneRecord` |
-| Huawei / Honor | `Recordings/Call`, `Call` |
-| Google Phone | **нет публичной папки** → Share в CallMemo или путь C/H |
+**Tecno** (HiOS / Transsion, семейство с Infinix и itel). Типичные пути:
 
-Пути уточняются runtime-сканером и ручным выбором папки.
+- `Music/PhoneRecorod` (исторический опечаточный путь на многих Tecno)
+- `Music/PhoneRecord`
+- `Call`
+- `Recordings/Call`
+- `Record/Call`
 
-### Вариант C — Shizuku (без root), минимум действий
+В мастере Tecno: Phone → ⚙ → Enable auto call recording (формулировка зависит от прошивки) → после первого записанного звонка автопоиск файла.
 
-Shizuku даёт приложению выполнять часть privileged-операций от имени `shell` (как при ADB), без полного root.
+### Пресеты папок (максимально широкий стартовый каталог)
 
-**Один раз на устройстве:**
+Пути относительно внутреннего хранилища. Список живёт в коде как таблица `OemRecordingPaths` + детект по `Build.MANUFACTURER` / `BRAND` / default dialer package.
 
-1. Установить Shizuku (GitHub / RuStore / сайт).
-2. Запустить Shizuku:
-   - Android 11+: Wireless debugging → pairing (Shizuku ведёт мастером); или
-   - с root — ещё проще.
-3. В CallMemo: «Подключить Shizuku» → системный диалог выдачи прав → готово.
+| Группа | Вендоры | Типичные пути |
+|--------|---------|---------------|
+| Transsion | **Tecno**, Infinix, itel | `Music/PhoneRecorod`, `Music/PhoneRecord`, `Call`, `Recordings/Call`, `Record/Call` |
+| Samsung | Samsung | `Recordings/Call`, `Call`, `Music/Call` |
+| Xiaomi | Xiaomi, Redmi, POCO | `MIUI/sound_recorder/call_rec`, `Recordings/Call` |
+| BBK | Vivo, iQOO | `Record/Call`, `VoiceRecorder/Calls`, `Call` |
+| BBK/OPlus | Oppo, Realme | `Music/Recordings/Call Recordings`, `Recordings/Call Recordings`, `Record/Call` |
+| OnePlus | OnePlus, ODialer | `Music/Recordings/Call Recordings`, `Record/PhoneRecord`, `Recordings/Call Recordings` |
+| Huawei | Huawei, Honor | `Recordings/Call`, `Call`, `Sounds/CallRecord` |
+| Motorola | Motorola, Lenovo | `CallRecordings`, `Music/CallRecordings`, `Recordings` |
+| Sony | Sony | `Music/Call Recording`, `Record/Call` |
+| Nokia / HMD | Nokia | `Call`, `Recordings/Call` (часто Google Phone) |
+| Nothing | Nothing | часто Google Phone → private |
+| ASUS | ASUS, ROG | `Recordings/Call`, `CallRecordings` |
+| LG (legacy) | LG | `Voice_Recorder/CallRec`, `Call` |
+| Meizu | Meizu | `Recorder/Call`, `Call` |
+| ZTE / Nubia | ZTE, Nubia, RedMagic | `CallRecord`, `Recordings/Call` |
+| Google / AOSP | Pixel и любой с Google Phone | **private** `com.google.android.dialer/.../callrecording` → только Share / C / H |
 
-Дальше при звонке CallMemo может захватывать call audio **без** OEM-рекордера (на поддерживаемых конфигурациях; VoLTE/Wi‑Fi calling и конкретные SoC могут отличаться).
+Дополнительно всегда:
 
-В UI: один экран-мастер «3 шага», ссылка на установку Shizuku, кнопка «Проверить соединение». Повторно каждый звонок ничего жать не нужно, пока Shizuku запущен (можно добавить напоминание в уведомлении, если отвалился).
+- MediaStore query без привязки к папке;
+- пользовательский tree URI;
+- Share-intent receiver для аудио.
 
-Root (Magisk / systemize) — только experimental later, не в основном UX.
+Каталог расширяем по мере тестов; неизвестный вендор → сканер + выбор папки, не «нет поддержки».
+
+### Вариант C — можно ли «заложить Shizuku в свой APK»?
+
+**Привилегии Shizuku в обычный APK «просто вшить» нельзя.**  
+Shizuku сам по себе не даёт права: их даёт пользователь **shell** через ADB / Wireless debugging (или root). Без этого шага ни Shizuku, ни наше приложение `VOICE_CALL` не пишут.
+
+Но **механику Shizuku можно встроить в CallMemo**, не требуя второе приложение:
+
+| Подход | Что в APK | Действия пользователя | Отдельный Shizuku? |
+|--------|-----------|------------------------|--------------------|
+| **C1 — встроенный ADB (рекомендуем как основной C)** | ADB-клиент + маленький recorder-daemon (как CallVault / JemRec / skvalex Built-in ADB) | Один раз: Developer options → Wireless debugging → парный 6-значный код в нашем мастере | Нет |
+| **C2 — клиент Shizuku API** | Только library `rikka.shizuku` | Установить и запустить Shizuku, выдать право CallMemo | Да |
+| **C3 — root** | optional su helper | root / Magisk | Нет |
+
+**Решение для CallMemo:** реализовать **C1 (встроенный Wireless Debugging)** как основной «про»-путь без второго приложения; **C2** — если Shizuku уже есть; **C3** — позже experimental.
+
+Ограничения C1 (честно в UI):
+
+- Android 11+ для Wireless debugging;
+- после перезагрузки обычно нужна краткая сессия по Wi‑Fi, чтобы снова поднять daemon;
+- pairing — разово, но без него система права не отдаст (это ограничение Android, не нашей лени).
+
+Итог для пользователя Tecno: сначала A (штатная запись HiOS — часто есть) → если нет/не находит файл → мастер C1 внутри CallMemo → всегда H.
 
 ## STT (on-device)
 
