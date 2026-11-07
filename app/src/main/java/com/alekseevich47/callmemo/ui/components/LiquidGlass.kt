@@ -31,22 +31,27 @@ import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
 
 /**
- * Reusable liquid-glass tokens (CodePen qErQmXO / giladfeder).
- *
- * Requires a [HazeState] sourced on the content behind the plate so text under
- * the glass is blurred + distorted (real backdrop sampling).
+ * Liquid glass tokens matching CodePen giladfeder/qErQmXO:
+ * nearly clear fill (rgba 255,255,255,0.03), light blur, strong refraction.
  */
 object LiquidGlassTokens {
-    /** ~10% less opaque than the previous 0.46 fill. */
-    val Fill = Color.White.copy(alpha = 0.36f)
-    val Specular = Color.White.copy(alpha = 0.70f)
-    val ShadowTint = Color(0xFF1F2687).copy(alpha = 0.18f)
+    /** CodePen ::before uses ~0.03 white — milky white kills the liquid look. */
+    val Fill = Color.White.copy(alpha = 0.03f)
+    val TintCool = Color(0xFFE8EEF8).copy(alpha = 0.10f)
+    val Specular = Color.White.copy(alpha = 0.22f)
+    val ShadowTint = Color(0xFF1F2687).copy(alpha = 0.21f)
     val DefaultCorner = 28.dp
-    val BlurRadius = 14.dp
-    val Elevation = 14.dp
+    /** CodePen backdrop-filter: blur(3px). */
+    val BlurRadius = 3.dp
+    val Elevation = 18.dp
+    /** AGSL displacement strength ≈ SVG feDisplacementMap scale≈85 on phone UI. */
+    const val DistortStrength = 42f
 }
 
-/** AGSL approx of CodePen feTurbulence + feDisplacementMap on the glass layer. */
+/**
+ * Approx of CodePen:
+ * feTurbulence fractalNoise baseFrequency 0.012, 2 octaves → feDisplacementMap scale 85.
+ */
 private const val LiquidDistortAgsl = """
 uniform shader content;
 uniform float2 size;
@@ -54,17 +59,19 @@ uniform float strength;
 
 half4 main(float2 fragCoord) {
     float2 uv = fragCoord / size;
-    float n1 = sin(uv.y * 36.0 + uv.x * 10.0) * cos(uv.x * 28.0);
-    float n2 = sin(uv.x * 52.0 - uv.y * 18.0) * 0.55;
-    float n3 = cos((uv.x + uv.y) * 22.0) * 0.35;
-    float2 offset = float2(n1 + n3, n2 - n1 * 0.4) * strength;
+    // Low-frequency fractal-ish noise (2 octaves), not high-freq shimmer.
+    float n1 = sin(uv.x * 7.5 + uv.y * 5.2) * cos(uv.y * 6.1 - uv.x * 3.4);
+    float n2 = sin(uv.x * 15.0 - uv.y * 11.0) * cos(uv.x * 9.0 + uv.y * 13.0) * 0.55;
+    float n3 = sin((uv.x + uv.y) * 4.2) * cos((uv.x - uv.y) * 5.8) * 0.35;
+    float nx = n1 + n2 * 0.65 + n3;
+    float ny = n2 - n1 * 0.45 + n3 * 0.7;
+    float2 offset = float2(nx, ny) * strength;
     return content.eval(fragCoord + offset);
 }
 """
 
 /**
- * Glass plate container. Put interactive content in [content] so icons/text stay sharp.
- * Pass [hazeState] from a parent that applied `Modifier.hazeSource(state)` on the backdrop.
+ * Glass plate. Backdrop is blurred + strongly refracted; interactive [content] stays sharp.
  */
 @Composable
 fun LiquidGlassPlate(
@@ -94,6 +101,7 @@ fun LiquidGlassPlate(
             )
             .clip(shape),
     ) {
+        // Backdrop layer: haze sample + liquid distortion (CodePen ::after).
         Box(
             modifier = Modifier
                 .matchParentSize()
@@ -101,10 +109,13 @@ fun LiquidGlassPlate(
                 .hazeEffect(
                     state = hazeState,
                     style = HazeStyle(
-                        backgroundColor = LiquidGlassTokens.Fill,
-                        tints = listOf(HazeTint(LiquidGlassTokens.Fill)),
+                        backgroundColor = Color.Transparent,
+                        tints = listOf(
+                            HazeTint(LiquidGlassTokens.TintCool),
+                            HazeTint(LiquidGlassTokens.Fill),
+                        ),
                         blurRadius = LiquidGlassTokens.BlurRadius,
-                        noiseFactor = 0.08f,
+                        noiseFactor = 0.12f,
                     ),
                 )
                 .then(
@@ -115,7 +126,10 @@ fun LiquidGlassPlate(
                                 shaderSize.width.toFloat(),
                                 shaderSize.height.toFloat(),
                             )
-                            distortShader.setFloatUniform("strength", 5.5f)
+                            distortShader.setFloatUniform(
+                                "strength",
+                                LiquidGlassTokens.DistortStrength,
+                            )
                             renderEffect = RenderEffect
                                 .createRuntimeShaderEffect(distortShader, "content")
                                 .asComposeRenderEffect()
@@ -123,9 +137,9 @@ fun LiquidGlassPlate(
                     } else {
                         Modifier
                     },
-                )
-                .background(LiquidGlassTokens.Fill.copy(alpha = 0.12f)),
+                ),
         )
+        // Specular rim + faint gradient (CodePen ::before) — keep nearly clear.
         Box(
             modifier = Modifier
                 .matchParentSize()
@@ -133,8 +147,8 @@ fun LiquidGlassPlate(
                 .background(
                     Brush.linearGradient(
                         colors = listOf(
-                            Color.White.copy(alpha = 0.26f),
-                            Color.White.copy(alpha = 0.06f),
+                            Color.White.copy(alpha = 0.08f),
+                            Color.White.copy(alpha = 0.02f),
                             Color.Transparent,
                         ),
                     ),

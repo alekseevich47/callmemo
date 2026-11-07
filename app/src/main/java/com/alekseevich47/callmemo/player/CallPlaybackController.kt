@@ -9,6 +9,7 @@ import androidx.core.content.ContextCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -105,7 +106,7 @@ class CallPlaybackController @Inject constructor(
             runCatching {
                 exo.stop()
                 exo.clearMediaItems()
-                exo.setMediaItem(MediaItem.fromUri(Uri.parse(resolved)))
+                exo.setMediaItem(mediaItemFor(resolved))
                 exo.setPlaybackSpeed(_state.value.speed)
                 exo.prepare()
                 exo.playWhenReady = true
@@ -211,6 +212,25 @@ class CallPlaybackController @Inject constructor(
             startedAtEpochMs = startedAtEpochMs,
             durationSeconds = (durationHintMs / 1000L).coerceAtLeast(1L),
         )
+    }
+
+    /** Tecno PhoneRecord often stores raw ADTS `.aac` — hint mime so ExoPlayer probes correctly. */
+    private fun mediaItemFor(uriString: String): MediaItem {
+        val uri = Uri.parse(uriString)
+        val lower = uriString.lowercase()
+        val mime = when {
+            lower.endsWith(".aac") -> MimeTypes.AUDIO_AAC
+            lower.endsWith(".m4a") || lower.endsWith(".mp4") -> MimeTypes.AUDIO_MP4
+            lower.endsWith(".amr") || lower.endsWith(".awb") -> MimeTypes.AUDIO_AMR_NB
+            lower.endsWith(".mp3") -> MimeTypes.AUDIO_MPEG
+            lower.endsWith(".wav") -> MimeTypes.AUDIO_WAV
+            lower.endsWith(".ogg") || lower.endsWith(".opus") -> MimeTypes.AUDIO_OGG
+            else -> null
+        }
+        return MediaItem.Builder()
+            .setUri(uri)
+            .apply { if (mime != null) setMimeType(mime) }
+            .build()
     }
 
     private fun ensurePlayer() {

@@ -7,6 +7,18 @@ import org.junit.Test
 class RecordingLocatorScoreTest {
 
     @Test
+    fun tecnoNumberSubfolderAacScoresHigh() {
+        // Music/PhoneRecord/<number>/file.aac — digits live in the folder, not filename.
+        val score = RecordingLocator.scoreCandidate(
+            name = "20261107_143022.aac",
+            relativePath = "Music/PhoneRecord/79001234567/",
+            digits = "79001234567",
+        )
+        assertThat(score).isAtLeast(RecordingLocator.MIN_NUMBER_MATCH_SCORE)
+        assertThat(score).isAtLeast(13)
+    }
+
+    @Test
     fun tecnoCallFileWithNumberScoresHigh() {
         val score = RecordingLocator.scoreCandidate(
             name = "Call_79001234567_20261107.m4a",
@@ -45,5 +57,12 @@ class RecordingLocatorScoreTest {
             digits = "79001234567",
         )
         assertThat(score).isAtLeast(RecordingLocator.MIN_ACCEPT_SCORE)
+    }
+
+    @Test
+    fun aacExtensionIsRecognized() {
+        assertThat(RecordingLocator.looksLikeAudioFile("clip.AAC")).isTrue()
+        assertThat(RecordingLocator.looksLikeAudioFile("clip.aac")).isTrue()
+        assertThat(RecordingLocator.looksLikeAudioFile("notes.txt")).isFalse()
     }
 }
