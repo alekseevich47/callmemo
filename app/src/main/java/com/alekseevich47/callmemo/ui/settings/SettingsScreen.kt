@@ -7,13 +7,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Call
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -69,6 +72,7 @@ class SettingsViewModel @Inject constructor(
 @Composable
 fun SettingsRoute(
     onBack: () -> Unit,
+    onTestCall: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
@@ -87,6 +91,26 @@ fun SettingsRoute(
                 Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Назад")
             }
             Text("Настройки", style = MaterialTheme.typography.headlineMedium)
+        }
+
+        SectionCard(cardModifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+            Text("Демо", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Проверь входящий → активный вызов, стрим и запись в журнал без реальной телефонии.",
+                color = CallMemoMuted,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(12.dp))
+            Button(
+                onClick = onTestCall,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+            ) {
+                Icon(Icons.Outlined.Call, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Тестовый звонок")
+            }
         }
 
         SectionCard(cardModifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {

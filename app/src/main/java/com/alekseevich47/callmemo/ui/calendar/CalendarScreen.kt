@@ -24,14 +24,18 @@ import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -62,6 +66,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
@@ -82,6 +88,18 @@ class CalendarViewModel @Inject constructor(
     init {
         viewModelScope.launch { repository.ensureSeeded() }
     }
+
+    fun addEvent(title: String, notes: String, day: LocalDate) {
+        viewModelScope.launch {
+            repository.addCalendarItem(
+                title = title,
+                notes = notes.ifBlank { null },
+                startsAt = LocalDateTime.of(day, LocalTime.of(12, 0)),
+                type = CalendarItemType.EVENT,
+                remindMinutesBefore = 30,
+            )
+        }
+    }
 }
 
 @Composable
@@ -96,6 +114,9 @@ fun CalendarRoute(
     val yearMonth = YearMonth.parse(month)
     val selected = LocalDate.parse(selectedDay)
     val dayItems = items.filter { it.startsAt.toLocalDate() == selected }
+    var showDialog by remember { mutableStateOf(false) }
+    var eventTitle by remember { mutableStateOf("") }
+    var eventNotes by remember { mutableStateOf("") }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -119,7 +140,7 @@ fun CalendarRoute(
                 color = CallMemoInk,
             )
             LazyColumn(
-                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 120.dp),
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 140.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 if (dayItems.isEmpty()) {
@@ -136,16 +157,57 @@ fun CalendarRoute(
             }
         }
         FloatingActionButton(
-            onClick = {},
+            onClick = {
+                eventTitle = ""
+                eventNotes = ""
+                showDialog = true
+            },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 22.dp, bottom = 22.dp),
+                .padding(end = 22.dp, bottom = 96.dp),
             shape = CircleShape,
             containerColor = CallMemoBlue,
             contentColor = Color.White,
         ) {
             Icon(Icons.Outlined.Add, contentDescription = "Добавить")
         }
+    }
+
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            title = { Text("Событие на ${dayTitle(selected)}") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = eventTitle,
+                        onValueChange = { eventTitle = it },
+                        label = { Text("Название") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = eventNotes,
+                        onValueChange = { eventNotes = it },
+                        label = { Text("Заметка") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 2,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.addEvent(eventTitle, eventNotes, selected)
+                        showDialog = false
+                    },
+                ) { Text("Сохранить") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDialog = false }) { Text("Отмена") }
+            },
+        )
     }
 }
 

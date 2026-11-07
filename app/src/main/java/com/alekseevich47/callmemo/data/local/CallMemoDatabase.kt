@@ -10,7 +10,7 @@ import androidx.room.RoomDatabase
         CalendarItemEntity::class,
         NoteEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class CallMemoDatabase : RoomDatabase() {

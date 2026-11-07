@@ -15,7 +15,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Message
-import androidx.compose.material.icons.outlined.PersonAdd
+import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.outlined.Bluetooth
 import androidx.compose.material.icons.outlined.Call
 import androidx.compose.material.icons.outlined.CallEnd
@@ -23,7 +23,7 @@ import androidx.compose.material.icons.outlined.Dialpad
 import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.MicOff
 import androidx.compose.material.icons.outlined.Pause
-import androidx.compose.material.icons.outlined.VolumeUp
+import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -32,7 +32,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -43,18 +45,70 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.alekseevich47.callmemo.data.repository.CallMemoRepository
+import com.alekseevich47.callmemo.domain.model.CallDirection
 import com.alekseevich47.callmemo.ui.components.AvatarCircle
 import com.alekseevich47.callmemo.ui.theme.CallMemoBlue
 import com.alekseevich47.callmemo.ui.theme.CallMemoDanger
 import com.alekseevich47.callmemo.ui.theme.CallMemoSuccess
+import com.alekseevich47.callmemo.util.TimeFormat
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+@HiltViewModel
+class InCallViewModel @Inject constructor(
+    private val repository: CallMemoRepository,
+) : ViewModel() {
+    fun finishCall(
+        name: String,
+        number: String,
+        direction: CallDirection,
+        durationSeconds: Long,
+        streamed: Boolean,
+        onDone: () -> Unit,
+    ) {
+        viewModelScope.launch {
+            repository.recordFinishedCall(
+                contactName = name,
+                number = number,
+                direction = direction,
+                durationSeconds = durationSeconds,
+                transcript = if (streamed) {
+                    "Тестовая расшифровка: договорились созвониться завтра в 11:00 и купить хлеб."
+                } else {
+                    null
+                },
+            )
+            onDone()
+        }
+    }
+}
 
 @Composable
 fun InCallRoute(
     name: String,
     number: String,
+    direction: CallDirection = CallDirection.OUTGOING,
     onEnd: () -> Unit,
+    viewModel: InCallViewModel = hiltViewModel(),
 ) {
     var streamOn by rememberSaveable { mutableStateOf(false) }
+    var muted by rememberSaveable { mutableStateOf(false) }
+    var speaker by rememberSaveable { mutableStateOf(false) }
+    var seconds by rememberSaveable { mutableIntStateOf(0) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1_000)
+            seconds += 1
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -74,15 +128,21 @@ fun InCallRoute(
             Spacer(Modifier.height(16.dp))
             Text(name, style = MaterialTheme.typography.headlineMedium, color = Color.White)
             Text(number, color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodyLarge)
-            Text("Идёт вызов…", color = Color.White.copy(alpha = 0.55f), style = MaterialTheme.typography.bodyMedium)
+            Text(
+                text = TimeFormat.duration(seconds.toLong()),
+                color = Color.White.copy(alpha = 0.55f),
+                style = MaterialTheme.typography.bodyMedium,
+            )
             Spacer(Modifier.height(36.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
             ) {
-                InCallAction("Без звука", Icons.Outlined.MicOff)
+                InCallAction("Без звука", Icons.Outlined.MicOff, active = muted) { muted = !muted }
                 InCallAction("Клавиатура", Icons.Outlined.Dialpad)
-                InCallAction("Динамик", Icons.Outlined.VolumeUp)
+                InCallAction("Динамик", Icons.AutoMirrored.Outlined.VolumeUp, active = speaker) {
+                    speaker = !speaker
+                }
             }
             Spacer(Modifier.height(18.dp))
             Row(
@@ -108,15 +168,37 @@ fun InCallRoute(
                 Spacer(Modifier.size(8.dp))
                 Text(if (streamOn) "Стрим включён" else "Транскрипция / Стрим")
             }
+            if (streamOn) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = "Распознаю речь… «давай завтра в одиннадцать…»",
+                    color = Color.White.copy(alpha = 0.75f),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
             Spacer(Modifier.weight(1f))
             IconButton(
-                onClick = onEnd,
+                onClick = {
+                    viewModel.finishCall(
+                        name = name,
+                        number = number,
+                        direction = direction,
+                        durationSeconds = seconds.toLong(),
+                        streamed = streamOn,
+                        onDone = onEnd,
+                    )
+                },
                 modifier = Modifier
                     .size(76.dp)
                     .clip(CircleShape)
                     .background(CallMemoDanger),
             ) {
-                Icon(Icons.Outlined.CallEnd, contentDescription = "Завершить", tint = Color.White, modifier = Modifier.size(34.dp))
+                Icon(
+                    Icons.Outlined.CallEnd,
+                    contentDescription = "Завершить",
+                    tint = Color.White,
+                    modifier = Modifier.size(34.dp),
+                )
             }
             Spacer(Modifier.height(24.dp))
         }
@@ -189,14 +271,21 @@ fun IncomingRoute(
 }
 
 @Composable
-private fun InCallAction(label: String, icon: ImageVector) {
+private fun InCallAction(
+    label: String,
+    icon: ImageVector,
+    active: Boolean = false,
+    onClick: () -> Unit = {},
+) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         IconButton(
-            onClick = {},
+            onClick = onClick,
             modifier = Modifier
                 .size(64.dp)
                 .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.12f)),
+                .background(
+                    if (active) Color.White.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.12f),
+                ),
         ) {
             Icon(icon, contentDescription = label, tint = Color.White)
         }

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -29,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -36,6 +38,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.alekseevich47.callmemo.domain.model.CallDirection
 import com.alekseevich47.callmemo.domain.model.CallLogEntry
 import com.alekseevich47.callmemo.ui.components.AvatarCircle
+import com.alekseevich47.callmemo.ui.components.InfoCircleButton
 import com.alekseevich47.callmemo.ui.components.ScreenHeader
 import com.alekseevich47.callmemo.ui.components.SearchField
 import com.alekseevich47.callmemo.ui.theme.CallMemoBlue
@@ -86,14 +89,14 @@ fun CallsScreen(
             )
             Spacer(Modifier.height(8.dp))
             LazyColumn(
-                contentPadding = PaddingValues(bottom = 120.dp),
+                contentPadding = PaddingValues(bottom = 140.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 items(calls, key = { it.id }) { entry ->
                     CallRow(
                         entry = entry,
-                        onClick = { onOpenDetail(entry.id) },
                         onCall = { onCallNumber(entry.contactName, entry.number) },
+                        onOpenDetail = { onOpenDetail(entry.id) },
                     )
                 }
             }
@@ -102,7 +105,7 @@ fun CallsScreen(
             onClick = onOpenDialpad,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 22.dp, bottom = 22.dp),
+                .padding(end = 22.dp, bottom = 96.dp),
             shape = CircleShape,
             containerColor = CallMemoBlue,
             contentColor = Color.White,
@@ -115,18 +118,19 @@ fun CallsScreen(
 @Composable
 private fun CallRow(
     entry: CallLogEntry,
-    onClick: () -> Unit,
     onCall: () -> Unit,
+    onOpenDetail: () -> Unit,
 ) {
     val title = PhoneNumberUtils.displayOrUnknown(entry.contactName, entry.number)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AvatarCircle(label = title)
+        Box(modifier = Modifier.clickable(onClick = onCall)) {
+            AvatarCircle(label = title)
+        }
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -141,8 +145,9 @@ private fun CallRow(
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 DirectionIcon(entry.direction)
+                Spacer(Modifier.width(6.dp))
                 Text(
-                    text = "  ${entry.number}",
+                    text = entry.number,
                     style = MaterialTheme.typography.bodyMedium,
                     color = CallMemoMuted,
                     maxLines = 1,
@@ -154,7 +159,10 @@ private fun CallRow(
             text = TimeFormat.callWhen(entry.startedAt),
             style = MaterialTheme.typography.bodyMedium,
             color = CallMemoMuted,
+            textAlign = TextAlign.End,
+            modifier = Modifier.padding(end = 2.dp),
         )
+        InfoCircleButton(onClick = onOpenDetail)
     }
 }
 

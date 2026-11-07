@@ -22,7 +22,7 @@ import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Videocam
-import androidx.compose.material.icons.outlined.VolumeUp
+import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -120,12 +120,42 @@ fun CallDetailRoute(
 
         Spacer(Modifier.height(18.dp))
         SectionCard(cardModifier = Modifier.padding(horizontal = 20.dp)) {
-            Text("История", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(6.dp))
+            Text("Предыдущие звонки", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
             Text(
-                text = "Всего звонков: ${detail?.history?.size ?: 0}",
+                text = "Всего с этим абонентом: ${detail?.history?.size ?: 0}",
                 color = CallMemoMuted,
+                style = MaterialTheme.typography.bodyMedium,
             )
+            Spacer(Modifier.height(10.dp))
+            detail?.history.orEmpty().forEachIndexed { index, item ->
+                if (index > 0) Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = when (item.direction) {
+                                com.alekseevich47.callmemo.domain.model.CallDirection.OUTGOING -> "Исходящий"
+                                com.alekseevich47.callmemo.domain.model.CallDirection.INCOMING -> "Входящий"
+                                com.alekseevich47.callmemo.domain.model.CallDirection.MISSED -> "Пропущенный"
+                            },
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            text = item.transcriptPreview ?: "Без расшифровки",
+                            color = CallMemoMuted,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 2,
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(TimeFormat.callWhen(item.startedAt), color = CallMemoMuted, style = MaterialTheme.typography.bodyMedium)
+                        Text(TimeFormat.duration(item.durationSeconds), color = CallMemoMuted, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
         }
 
         Spacer(Modifier.height(12.dp))
@@ -192,7 +222,7 @@ fun CallDetailRoute(
                     Icon(Icons.Outlined.PlayArrow, contentDescription = "Слушать", tint = Color.White)
                 }
                 IconButton(onClick = {}) {
-                    Icon(Icons.Outlined.VolumeUp, contentDescription = "Громкость", tint = CallMemoMuted)
+                    Icon(Icons.AutoMirrored.Outlined.VolumeUp, contentDescription = "Громкость", tint = CallMemoMuted)
                 }
             }
         }

@@ -1,18 +1,25 @@
 package com.alekseevich47.callmemo.data.repository
 
 import com.alekseevich47.callmemo.data.SeedData
+import com.alekseevich47.callmemo.data.local.CalendarItemEntity
+import com.alekseevich47.callmemo.data.local.CallLogEntity
 import com.alekseevich47.callmemo.data.local.CallMemoDatabase
+import com.alekseevich47.callmemo.data.local.NoteEntity
 import com.alekseevich47.callmemo.data.local.toDomain
 import com.alekseevich47.callmemo.data.secure.SecureSettingsStore
 import com.alekseevich47.callmemo.domain.model.AppSettings
 import com.alekseevich47.callmemo.domain.model.CalendarItem
+import com.alekseevich47.callmemo.domain.model.CalendarItemType
 import com.alekseevich47.callmemo.domain.model.CallDetail
+import com.alekseevich47.callmemo.domain.model.CallDirection
 import com.alekseevich47.callmemo.domain.model.CallLogEntry
 import com.alekseevich47.callmemo.domain.model.ContactItem
 import com.alekseevich47.callmemo.domain.model.NoteItem
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.ZoneId
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -86,4 +93,60 @@ class CallMemoRepository @Inject constructor(
     }
 
     fun maskedApiKey(): String = settingsStore.maskedApiKey()
+
+    suspend fun addNote(title: String, body: String, relatedNumber: String? = null) {
+        db.noteDao().upsertAll(
+            listOf(
+                NoteEntity(
+                    title = title.trim().ifBlank { "Без названия" },
+                    body = body.trim(),
+                    createdAtEpochMs = System.currentTimeMillis(),
+                    relatedNumber = relatedNumber,
+                ),
+            ),
+        )
+    }
+
+    suspend fun addCalendarItem(
+        title: String,
+        notes: String?,
+        startsAt: LocalDateTime,
+        type: CalendarItemType,
+        remindMinutesBefore: Int? = 30,
+        zoneId: ZoneId = ZoneId.systemDefault(),
+    ) {
+        db.calendarDao().upsertAll(
+            listOf(
+                CalendarItemEntity(
+                    title = title.trim().ifBlank { "Событие" },
+                    notes = notes?.trim()?.ifBlank { null },
+                    startsAtEpochMs = startsAt.atZone(zoneId).toInstant().toEpochMilli(),
+                    type = type.name,
+                    remindMinutesBefore = remindMinutesBefore,
+                ),
+            ),
+        )
+    }
+
+    suspend fun recordFinishedCall(
+        contactName: String?,
+        number: String,
+        direction: CallDirection,
+        durationSeconds: Long,
+        transcript: String? = null,
+    ) {
+        db.callLogDao().upsertAll(
+            listOf(
+                CallLogEntity(
+                    contactName = contactName,
+                    number = number,
+                    direction = direction.name,
+                    startedAtEpochMs = Instant.now().minusSeconds(durationSeconds.coerceAtLeast(0)).toEpochMilli(),
+                    durationSeconds = durationSeconds.coerceAtLeast(0),
+                    transcript = transcript,
+                    recordingUri = if (transcript != null) "demo://recorded" else null,
+                ),
+            ),
+        )
+    }
 }

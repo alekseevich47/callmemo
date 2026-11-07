@@ -110,7 +110,7 @@ fun ContactsRoute(
             onClick = {},
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 22.dp, bottom = 22.dp),
+                .padding(end = 22.dp, bottom = 96.dp),
             shape = CircleShape,
             containerColor = CallMemoBlue,
             contentColor = Color.White,

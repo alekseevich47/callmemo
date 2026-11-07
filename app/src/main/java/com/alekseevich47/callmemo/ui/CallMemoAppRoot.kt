@@ -38,6 +38,7 @@ import com.alekseevich47.callmemo.ui.navigation.TopLevelDestination
 import com.alekseevich47.callmemo.ui.notes.NotesRoute
 import com.alekseevich47.callmemo.ui.player.PlayerViewModel
 import com.alekseevich47.callmemo.ui.settings.SettingsRoute
+import com.alekseevich47.callmemo.domain.model.CallDirection
 import com.alekseevich47.callmemo.ui.theme.CallMemoMist
 import com.alekseevich47.callmemo.util.PhoneNumberUtils
 import java.net.URLDecoder
@@ -67,7 +68,7 @@ fun CallMemoAppRoot(
             .onFailure {
                 context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$dial")))
             }
-        navController.navigate(Routes.inCall(name ?: dial, dial))
+        navController.navigate(Routes.inCall(name ?: dial, dial, CallDirection.OUTGOING.name))
     }
 
     Scaffold(
@@ -154,21 +155,38 @@ fun CallMemoAppRoot(
                     )
                 }
                 composable(Routes.SETTINGS) {
-                    SettingsRoute(onBack = { navController.popBackStack() })
+                    SettingsRoute(
+                        onBack = { navController.popBackStack() },
+                        onTestCall = {
+                            navController.navigate(
+                                Routes.incoming("Тестовый абонент", "+7 900 000-00-01"),
+                            )
+                        },
+                    )
                 }
                 composable(
                     route = Routes.IN_CALL,
                     arguments = listOf(
                         navArgument("name") { type = NavType.StringType },
                         navArgument("number") { type = NavType.StringType },
+                        navArgument("direction") { type = NavType.StringType },
                     ),
                 ) { entry ->
                     val name = decode(entry.arguments?.getString("name").orEmpty())
                     val number = decode(entry.arguments?.getString("number").orEmpty())
+                    val direction = runCatching {
+                        CallDirection.valueOf(entry.arguments?.getString("direction").orEmpty())
+                    }.getOrDefault(CallDirection.OUTGOING)
                     InCallRoute(
                         name = name,
                         number = number,
-                        onEnd = { navController.popBackStack() },
+                        direction = direction,
+                        onEnd = {
+                            navController.popBackStack(
+                                route = TopLevelDestination.CALLS.route,
+                                inclusive = false,
+                            )
+                        },
                     )
                 }
                 composable(
@@ -185,7 +203,9 @@ fun CallMemoAppRoot(
                         number = number,
                         onAccept = {
                             navController.popBackStack()
-                            navController.navigate(Routes.inCall(name, number))
+                            navController.navigate(
+                                Routes.inCall(name, number, CallDirection.INCOMING.name),
+                            )
                         },
                         onDecline = { navController.popBackStack() },
                     )
