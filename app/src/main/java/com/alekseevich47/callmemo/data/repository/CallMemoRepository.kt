@@ -60,6 +60,8 @@ class CallMemoRepository @Inject constructor(
 
     suspend fun callDetail(id: Long): CallDetail? = withContext(Dispatchers.IO) {
         val raw = systemCallLog.getById(id) ?: return@withContext null
+        // Resolve only the opened entry — scanning MediaStore for every history row
+        // froze the UI on devices with large audio libraries.
         val recording = raw.recordingUri
             ?: recordingLocator.findRecording(
                 number = raw.number,
@@ -67,19 +69,7 @@ class CallMemoRepository @Inject constructor(
                 durationSeconds = raw.durationSeconds,
             )
         val entry = raw.copy(recordingUri = recording)
-        val history = systemCallLog.historyForNumber(entry.number).map { item ->
-            if (item.recordingUri != null) {
-                item
-            } else {
-                item.copy(
-                    recordingUri = recordingLocator.findRecording(
-                        number = item.number,
-                        startedAtEpochMs = item.startedAt.toEpochMilli(),
-                        durationSeconds = item.durationSeconds,
-                    ),
-                )
-            }
-        }
+        val history = systemCallLog.historyForNumber(entry.number)
         CallDetail(
             entry = entry,
             history = history,

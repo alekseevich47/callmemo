@@ -4,7 +4,7 @@
 > Цель: не забывать, **что уже есть**, **где лежит** и **как применяется**.  
 > UI-спека / макеты: [UI.md](UI.md). Макеты: `docs/mockups/`.
 
-**Последнее обновление:** 2026-11-07 (playback URI fix / haze liquid glass / dialpad-on-calls / sticky detail).
+**Последнее обновление:** 2026-11-07 (fix hang + broken recordings matching).
 
 ---
 
@@ -94,7 +94,7 @@ ui/
 util/ PhoneNumberUtils.kt, TimeFormat.kt
 ```
 
-Тесты: `app/src/test/...` — `OemRecordingPathsTest`, `PhoneNumberUtilsTest`, `TimeFormatTest`.
+Тесты: `app/src/test/...` — `OemRecordingPathsTest`, `RecordingLocatorScoreTest`, `PhoneNumberUtilsTest`, `TimeFormatTest`.
 
 ---
 
@@ -190,6 +190,8 @@ Telecom → `MainActivity.ACTION_SHOW_INCOMING` / `SHOW_IN_CALL` / `OPEN_CALL_DE
 - После `STATE_ENDED` повторный play → seek(0) + play (`ended` flag).
 - Нет записи → **не** играть synthetic beeps; bar без звука / `playing=false`.
 - MediaStore URI только через `ContentUris.withAppendedId` (не `withAppendedPath`).
+- Progress в notification: `ACTION_REFRESH` / `NotificationManager.notify` (~2 с), **не** `startForegroundService` каждый тик (это вешало UI).
+- Waveform: лёгкий `MediaExtractor` sample-size preview — **без** MediaCodec PCM decode.
 
 ### Dialpad sheet
 
@@ -236,7 +238,7 @@ Telecom → `MainActivity.ACTION_SHOW_INCOMING` / `SHOW_IN_CALL` / `OPEN_CALL_DE
 
 - `observeCalls(query, fromEpochMs?, toEpochMs?)`
 - `observeContacts(query)`
-- `callDetail(id)` — entry + history + попытка `RecordingLocator`
+- `callDetail(id)` — entry + history; `RecordingLocator` только для **открытого** entry (не N× scan по history)
 - `observeNotes` / `addNote`
 - `observeCalendar` / `observeCalendarDay` / `addCalendarItem`
 - `settings` / `updateSettings` / `maskedApiKey`
@@ -250,7 +252,8 @@ Telecom → `MainActivity.ACTION_SHOW_INCOMING` / `SHOW_IN_CALL` / `OPEN_CALL_DE
 ### Recording
 
 - **A (сделано):** `RecordingLocator` — MediaStore в окне времени звонка + скан OEM-папок из `OemRecordingPaths`.
-- Если файла нет → синтетический WAV на **длительность звонка** (не фиксированные 20 с) — чтобы UI/звук не ломались.
+- Matching **строгий**: `scoreCandidate >= 2` (call name/path и/или цифры номера). Случайная музыка / WhatsApp в том же окне — **не** запись.
+- Если файла нет → **не** synthesise beep; `playing=false`, bar без звука. Resolve на play через locator.
 - **C / H:** план (см. §10).
 
 ### Playback controller API

@@ -283,6 +283,7 @@ class CallPlaybackController @Inject constructor(
     private fun startTicker() {
         ticker?.cancel()
         ticker = scope.launch {
+            var ticks = 0
             while (isActive) {
                 val current = _state.value
                 if (!current.visible) break
@@ -296,7 +297,12 @@ class CallPlaybackController @Inject constructor(
                             playing = exo.isPlaying,
                         )
                     }
-                    if (current.playing) startNotificationService()
+                    // Progress: update notification in-place. Never restart FGS every tick —
+                    // that previously froze the app (startForegroundService ×2/sec).
+                    ticks++
+                    if (current.playing && ticks % 4 == 0) {
+                        refreshNotification()
+                    }
                 }
                 delay(500)
             }
@@ -318,6 +324,14 @@ class CallPlaybackController @Inject constructor(
                 appContext.startService(intent)
             }
         }
+    }
+
+    private fun refreshNotification() {
+        if (!_state.value.visible) return
+        val intent = Intent(appContext, PlaybackService::class.java).apply {
+            action = PlaybackService.ACTION_REFRESH
+        }
+        runCatching { appContext.startService(intent) }
     }
 
     private fun stopNotificationService() {
