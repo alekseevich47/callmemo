@@ -7,6 +7,8 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -91,8 +93,12 @@ fun CallMemoAppRoot(
             add(Manifest.permission.READ_CONTACTS)
             add(Manifest.permission.CALL_PHONE)
             add(Manifest.permission.READ_PHONE_STATE)
-            if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
-            if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.READ_MEDIA_AUDIO)
+            if (Build.VERSION.SDK_INT >= 33) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
+                add(Manifest.permission.READ_MEDIA_AUDIO)
+            } else {
+                add(Manifest.permission.READ_EXTERNAL_STORAGE)
+            }
         },
     )
 
@@ -140,15 +146,17 @@ fun CallMemoAppRoot(
 
     val topLevel = TopLevelDestination.entries.firstOrNull { route == it.route }
     val inCallChrome = route.startsWith("in_call") || route.startsWith("incoming")
-    val hideTabs = inCallChrome || route == Routes.SETTINGS
+    val hideTabs = inCallChrome || route == Routes.SETTINGS || route.startsWith("call_detail")
     val showOverlayChrome = !inCallChrome
     val showTabs = topLevel != null && !hideTabs
-    val showPlayer = showOverlayChrome && player.visible
+    val showPlayer = showOverlayChrome && player.visible && route != Routes.SETTINGS
     val showDialFab = topLevel == TopLevelDestination.CALLS && !dialpadOpen && !inCallChrome
+    // Keep chrome block mounted as one unit so tabs/FAB/player don't pop in ahead of content.
+    val showBottomChrome = showOverlayChrome && (showTabs || showPlayer)
 
-    val tabsReserve = if (showTabs) 72.dp else 0.dp
-    val playerReserve = if (showPlayer) 118.dp else 0.dp
-    val chromeBottom = tabsReserve + playerReserve + 8.dp
+    val tabsReserve = if (showTabs) 78.dp else 0.dp
+    val playerReserve = if (showPlayer) 124.dp else 0.dp
+    val chromeBottom = tabsReserve + playerReserve + 12.dp
 
     fun placeCall(name: String?, number: String) {
         val dial = PhoneNumberUtils.normalizeForDial(number)
@@ -170,13 +178,21 @@ fun CallMemoAppRoot(
         navController.navigate(Routes.inCall(name ?: dial, dial, CallDirection.OUTGOING.name))
     }
 
+    fun selectTab(dest: TopLevelDestination) {
+        dialpadOpen = false
+        navController.navigate(dest.route) {
+            popUpTo(TopLevelDestination.CALLS.route) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(CallMemoMist)
             .statusBarsPadding(),
     ) {
-        // Full-bleed content — list scrolls under floating glass chrome.
         NavHost(
             navController = navController,
             startDestination = TopLevelDestination.CALLS.route,
@@ -215,9 +231,20 @@ fun CallMemoAppRoot(
                 CallDetailRoute(
                     onBack = { navController.popBackStack() },
                     onCall = { name, number -> placeCall(name, number) },
-                    onPlay = { callId, contactName, number, uri, durationMs ->
-                        playerViewModel.play(callId, contactName, number, uri, durationMs)
+                    onOpenCall = { id ->
+                        val currentId = backStack?.arguments?.getLong("callId")
+                        navController.navigate(Routes.callDetail(id)) {
+                            if (currentId != null) {
+                                popUpTo(Routes.callDetail(currentId)) { inclusive = true }
+                            }
+                        }
                     },
+                    onPlay = { callId, contactName, number, uri, durationMs, startedAt ->
+                        playerViewModel.play(callId, contactName, number, uri, durationMs, startedAt)
+                    },
+                    playback = player,
+                    onTogglePlayback = playerViewModel::toggle,
+                    onSeekPlayback = playerViewModel::seekTo,
                 )
             }
             composable(Routes.SETTINGS) {
@@ -286,8 +313,8 @@ fun CallMemoAppRoot(
         AnimatedVisibility(
             visible = dialpadOpen,
             modifier = Modifier.align(Alignment.BottomCenter),
-            enter = slideInVertically { it },
-            exit = slideOutVertically { it },
+            enter = slideInVertically { it } + fadeIn(),
+            exit = slideOutVertically { it } + fadeOut(),
         ) {
             DialpadSheet(
                 visible = true,
@@ -298,58 +325,61 @@ fun CallMemoAppRoot(
             )
         }
 
-        if (showOverlayChrome) {
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(bottom = 4.dp),
-            ) {
-                if (showPlayer) {
-                    StickyPlayerBar(
-                        state = player,
-                        onToggle = playerViewModel::toggle,
-                        onSeek = playerViewModel::seekTo,
-                        onCycleSpeed = playerViewModel::cycleSpeed,
-                        onOpenDetail = {
-                            player.callId?.let { id ->
-                                navController.navigate(Routes.callDetail(id))
-                            }
-                        },
-                        onDismiss = playerViewModel::hide,
-                        barModifier = Modifier.padding(bottom = 8.dp),
-                    )
+        // Single chrome layer — tabs + player (+ FAB sibling) share the same visibility gate.
+        androidx.compose.animation.AnimatedVisibility(
+            visible = showBottomChrome || showDialFab,
+            modifier = Modifier.align(Alignment.BottomCenter),
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                if (showBottomChrome) {
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .navigationBarsPadding()
+                            .padding(bottom = 4.dp),
+                    ) {
+                        if (showPlayer) {
+                            StickyPlayerBar(
+                                state = player,
+                                onToggle = playerViewModel::toggle,
+                                onSeek = playerViewModel::seekTo,
+                                onCycleSpeed = playerViewModel::cycleSpeed,
+                                onOpenDetail = {
+                                    player.callId?.let { id ->
+                                        navController.navigate(Routes.callDetail(id))
+                                    }
+                                },
+                                onDismiss = playerViewModel::hide,
+                                barModifier = Modifier.padding(bottom = 8.dp),
+                            )
+                        }
+                        if (showTabs) {
+                            GlassBottomBar(
+                                current = topLevel!!,
+                                onSelect = ::selectTab,
+                            )
+                        }
+                    }
                 }
-                if (showTabs) {
-                    GlassBottomBar(
-                        current = topLevel!!,
-                        onSelect = { dest ->
-                            navController.navigate(dest.route) {
-                                popUpTo(TopLevelDestination.CALLS.route) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
+                if (showDialFab) {
+                    FloatingActionButton(
+                        onClick = {
+                            dialpadSeed = ""
+                            dialpadOpen = true
                         },
-                    )
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .navigationBarsPadding()
+                            .padding(end = 22.dp, bottom = chromeBottom + 8.dp),
+                        shape = CircleShape,
+                        containerColor = CallMemoBlue,
+                        contentColor = Color.White,
+                    ) {
+                        Icon(Icons.Outlined.Dialpad, contentDescription = "Набор номера")
+                    }
                 }
-            }
-        }
-
-        if (showDialFab) {
-            FloatingActionButton(
-                onClick = {
-                    dialpadSeed = ""
-                    dialpadOpen = true
-                },
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .navigationBarsPadding()
-                    .padding(end = 22.dp, bottom = chromeBottom + 8.dp),
-                shape = CircleShape,
-                containerColor = CallMemoBlue,
-                contentColor = Color.White,
-            ) {
-                Icon(Icons.Outlined.Dialpad, contentDescription = "Набор номера")
             }
         }
     }

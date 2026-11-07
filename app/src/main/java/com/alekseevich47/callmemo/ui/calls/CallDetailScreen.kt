@@ -1,6 +1,10 @@
 package com.alekseevich47.callmemo.ui.calls
 
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,28 +23,42 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Message
 import androidx.compose.material.icons.outlined.Call
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.Pause
+import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Videocam
-import androidx.compose.material.icons.automirrored.outlined.VolumeUp
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.alekseevich47.callmemo.domain.model.CallDirection
+import com.alekseevich47.callmemo.domain.model.CallLogEntry
+import com.alekseevich47.callmemo.player.PlaybackUiState
 import com.alekseevich47.callmemo.ui.components.AvatarCircle
 import com.alekseevich47.callmemo.ui.components.SectionCard
+import com.alekseevich47.callmemo.ui.components.WaveformSeek
 import com.alekseevich47.callmemo.ui.theme.CallMemoBlue
 import com.alekseevich47.callmemo.ui.theme.CallMemoInk
 import com.alekseevich47.callmemo.ui.theme.CallMemoMist
@@ -53,17 +71,27 @@ import com.alekseevich47.callmemo.util.TimeFormat
 fun CallDetailRoute(
     onBack: () -> Unit,
     onCall: (String?, String) -> Unit,
-    onPlay: (Long, String, String, String?, Long) -> Unit,
+    onOpenCall: (Long) -> Unit,
+    onPlay: (Long, String, String, String?, Long, Long) -> Unit,
+    playback: PlaybackUiState,
+    onTogglePlayback: () -> Unit,
+    onSeekPlayback: (Long) -> Unit,
     viewModel: CallDetailViewModel = hiltViewModel(),
 ) {
     val detail by viewModel.detail.collectAsStateWithLifecycle()
     val entry = detail?.entry
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    var historyExpanded by rememberSaveable { mutableStateOf(false) }
+    var moreExpanded by remember { mutableStateOf(false) }
+    var headerMoreExpanded by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(CallMemoMist)
             .verticalScroll(rememberScrollState())
-            .padding(bottom = 24.dp),
+            .padding(bottom = 140.dp),
     ) {
         Row(
             modifier = Modifier
@@ -79,8 +107,29 @@ fun CallDetailRoute(
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.weight(1f),
             )
-            IconButton(onClick = {}) {
-                Icon(Icons.Outlined.MoreHoriz, contentDescription = null)
+            IconButton(onClick = { headerMoreExpanded = true }) {
+                Icon(Icons.Outlined.MoreHoriz, contentDescription = "Ещё")
+            }
+            DropdownMenu(
+                expanded = headerMoreExpanded,
+                onDismissRequest = { headerMoreExpanded = false },
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Копировать номер") },
+                    onClick = {
+                        entry?.number?.let { clipboard.setText(AnnotatedString(it)) }
+                        headerMoreExpanded = false
+                    },
+                    leadingIcon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null) },
+                )
+                DropdownMenuItem(
+                    text = { Text("Поделиться") },
+                    onClick = {
+                        entry?.let { shareContact(context, it) }
+                        headerMoreExpanded = false
+                    },
+                    leadingIcon = { Icon(Icons.Outlined.Share, contentDescription = null) },
+                )
             }
         }
 
@@ -113,47 +162,88 @@ fun CallDetailRoute(
             horizontalArrangement = Arrangement.SpaceEvenly,
         ) {
             QuickAction("Звонок", Icons.Outlined.Call) { onCall(entry.contactName, entry.number) }
-            QuickAction("СМС", Icons.AutoMirrored.Outlined.Message) {}
-            QuickAction("Видео", Icons.Outlined.Videocam) {}
-            QuickAction("Ещё", Icons.Outlined.MoreHoriz) {}
+            QuickAction("СМС", Icons.AutoMirrored.Outlined.Message) {
+                openSms(context, entry.number)
+            }
+            QuickAction("Видео", Icons.Outlined.Videocam) {
+                openVideoCall(context, entry.number)
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                IconButton(
+                    onClick = { moreExpanded = true },
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(CircleShape)
+                        .background(CallMemoSky),
+                ) {
+                    Icon(Icons.Outlined.MoreHoriz, contentDescription = "Ещё", tint = CallMemoBlue)
+                }
+                Text("Ещё", style = MaterialTheme.typography.bodyMedium, color = CallMemoMuted)
+                DropdownMenu(
+                    expanded = moreExpanded,
+                    onDismissRequest = { moreExpanded = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Копировать номер") },
+                        onClick = {
+                            clipboard.setText(AnnotatedString(entry.number))
+                            moreExpanded = false
+                        },
+                        leadingIcon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null) },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Добавить в контакты") },
+                        onClick = {
+                            openAddContact(context, entry.contactName, entry.number)
+                            moreExpanded = false
+                        },
+                        leadingIcon = { Icon(Icons.Outlined.PersonAdd, contentDescription = null) },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Поделиться") },
+                        onClick = {
+                            shareContact(context, entry)
+                            moreExpanded = false
+                        },
+                        leadingIcon = { Icon(Icons.Outlined.Share, contentDescription = null) },
+                    )
+                }
+            }
         }
 
         Spacer(Modifier.height(18.dp))
+        val history = detail?.history.orEmpty()
         SectionCard(cardModifier = Modifier.padding(horizontal = 20.dp)) {
             Text("Предыдущие звонки", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(4.dp))
             Text(
-                text = "Всего с этим абонентом: ${detail?.history?.size ?: 0}",
+                text = "Всего с этим абонентом: ${history.size}",
                 color = CallMemoMuted,
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.height(10.dp))
-            detail?.history.orEmpty().forEachIndexed { index, item ->
+            val visible = if (historyExpanded) history else history.take(3)
+            visible.forEachIndexed { index, item ->
                 if (index > 0) Spacer(Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
+                HistoryRow(
+                    item = item,
+                    selected = item.id == entry.id,
+                    onClick = {
+                        if (item.id != entry.id) onOpenCall(item.id)
+                    },
+                )
+            }
+            if (history.size > 3) {
+                Spacer(Modifier.height(8.dp))
+                IconButton(
+                    onClick = { historyExpanded = !historyExpanded },
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = when (item.direction) {
-                                com.alekseevich47.callmemo.domain.model.CallDirection.OUTGOING -> "Исходящий"
-                                com.alekseevich47.callmemo.domain.model.CallDirection.INCOMING -> "Входящий"
-                                com.alekseevich47.callmemo.domain.model.CallDirection.MISSED -> "Пропущенный"
-                            },
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Text(
-                            text = item.transcriptPreview ?: "Без расшифровки",
-                            color = CallMemoMuted,
-                            style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 2,
-                        )
-                    }
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text(TimeFormat.callWhen(item.startedAt), color = CallMemoMuted, style = MaterialTheme.typography.bodyMedium)
-                        Text(TimeFormat.duration(item.durationSeconds), color = CallMemoMuted, style = MaterialTheme.typography.bodyMedium)
-                    }
+                    Icon(
+                        imageVector = if (historyExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                        contentDescription = if (historyExpanded) "Свернуть" else "Показать все",
+                        tint = CallMemoBlue,
+                    )
                 }
             }
         }
@@ -166,7 +256,6 @@ fun CallDetailRoute(
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f),
                 )
-                val clipboard = LocalClipboardManager.current
                 IconButton(
                     onClick = {
                         detail?.transcript?.let { clipboard.setText(AnnotatedString(it)) }
@@ -181,25 +270,48 @@ fun CallDetailRoute(
                 color = if (detail?.transcript == null) CallMemoMuted else CallMemoInk,
             )
             Spacer(Modifier.height(16.dp))
-            WaveformPlaceholder()
-            Spacer(Modifier.height(8.dp))
-            LinearProgressIndicator(
-                progress = { 0.18f },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(6.dp)
-                    .clip(RoundedCornerShape(8.dp)),
-                color = CallMemoBlue,
-                trackColor = CallMemoSky,
+
+            val isThisPlaying = playback.visible && playback.callId == entry.id
+            val durationMs = if (isThisPlaying) {
+                playback.durationMs.coerceAtLeast(1L)
+            } else {
+                entry.durationSeconds.coerceAtLeast(1) * 1000L
+            }
+            val positionMs = if (isThisPlaying) playback.positionMs else 0L
+            val progress = (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+
+            WaveformSeek(
+                progress = progress,
+                filledColor = CallMemoBlue,
+                emptyColor = CallMemoBlue.copy(alpha = 0.22f),
+                onSeekFraction = { fraction ->
+                    if (isThisPlaying) {
+                        onSeekPlayback((fraction * durationMs).toLong())
+                    } else {
+                        onPlay(
+                            entry.id,
+                            entry.contactName.orEmpty().ifBlank { entry.number },
+                            entry.number,
+                            entry.recordingUri,
+                            durationMs,
+                            entry.startedAt.toEpochMilli(),
+                        )
+                        onSeekPlayback((fraction * durationMs).toLong())
+                    }
+                },
             )
             Spacer(Modifier.height(4.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text("0:00", color = CallMemoMuted, style = MaterialTheme.typography.bodyMedium)
                 Text(
-                    TimeFormat.duration(entry.durationSeconds),
+                    TimeFormat.duration(positionMs / 1000),
+                    color = CallMemoMuted,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    TimeFormat.duration(durationMs / 1000),
                     color = CallMemoMuted,
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -212,25 +324,73 @@ fun CallDetailRoute(
             ) {
                 IconButton(
                     onClick = {
-                        onPlay(
-                            entry.id,
-                            entry.contactName.orEmpty().ifBlank { entry.number },
-                            entry.number,
-                            entry.recordingUri,
-                            entry.durationSeconds.coerceAtLeast(1) * 1000L,
-                        )
+                        if (isThisPlaying) {
+                            onTogglePlayback()
+                        } else {
+                            onPlay(
+                                entry.id,
+                                entry.contactName.orEmpty().ifBlank { entry.number },
+                                entry.number,
+                                entry.recordingUri,
+                                durationMs,
+                                entry.startedAt.toEpochMilli(),
+                            )
+                        }
                     },
                     modifier = Modifier
                         .size(56.dp)
                         .clip(CircleShape)
                         .background(CallMemoBlue),
                 ) {
-                    Icon(Icons.Outlined.PlayArrow, contentDescription = "Слушать", tint = Color.White)
-                }
-                IconButton(onClick = {}) {
-                    Icon(Icons.AutoMirrored.Outlined.VolumeUp, contentDescription = "Громкость", tint = CallMemoMuted)
+                    Icon(
+                        imageVector = if (isThisPlaying && playback.playing) {
+                            Icons.Outlined.Pause
+                        } else {
+                            Icons.Outlined.PlayArrow
+                        },
+                        contentDescription = "Слушать",
+                        tint = Color.White,
+                    )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun HistoryRow(
+    item: CallLogEntry,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .background(if (selected) CallMemoSky.copy(alpha = 0.55f) else Color.Transparent)
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = when (item.direction) {
+                    CallDirection.OUTGOING -> "Исходящий"
+                    CallDirection.INCOMING -> "Входящий"
+                    CallDirection.MISSED -> "Пропущенный"
+                },
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = item.transcriptPreview ?: "Без расшифровки",
+                color = CallMemoMuted,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
+            )
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            Text(TimeFormat.callWhen(item.startedAt), color = CallMemoMuted, style = MaterialTheme.typography.bodyMedium)
+            Text(TimeFormat.duration(item.durationSeconds), color = CallMemoMuted, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
@@ -255,24 +415,44 @@ private fun QuickAction(
     }
 }
 
-@Composable
-private fun WaveformPlaceholder() {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(36.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        val heights = listOf(12, 22, 18, 28, 14, 24, 30, 16, 26, 20, 12, 28, 18, 22, 14, 26, 20, 30, 16, 22)
-        heights.forEach { h ->
-            Spacer(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(h.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(CallMemoBlue.copy(alpha = 0.35f)),
-            )
+private fun openSms(context: android.content.Context, number: String) {
+    val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:${Uri.encode(number)}"))
+    runCatching { context.startActivity(intent) }
+        .onFailure {
+            Toast.makeText(context, "Нет приложения для СМС", Toast.LENGTH_SHORT).show()
         }
+}
+
+private fun openVideoCall(context: android.content.Context, number: String) {
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("tel:$number")).apply {
+        putExtra("android.telecom.extra.START_CALL_WITH_VIDEO_STATE", 3)
     }
+    runCatching { context.startActivity(intent) }
+        .onFailure {
+            Toast.makeText(context, "Видеозвонок недоступен", Toast.LENGTH_SHORT).show()
+        }
+}
+
+private fun openAddContact(context: android.content.Context, name: String?, number: String) {
+    val intent = Intent(Intent.ACTION_INSERT).apply {
+        type = android.provider.ContactsContract.Contacts.CONTENT_TYPE
+        putExtra(android.provider.ContactsContract.Intents.Insert.NAME, name.orEmpty())
+        putExtra(android.provider.ContactsContract.Intents.Insert.PHONE, number)
+    }
+    runCatching { context.startActivity(intent) }
+        .onFailure {
+            Toast.makeText(context, "Не удалось открыть контакты", Toast.LENGTH_SHORT).show()
+        }
+}
+
+private fun shareContact(context: android.content.Context, entry: CallLogEntry) {
+    val text = buildString {
+        entry.contactName?.takeIf { it.isNotBlank() }?.let { append(it).append('\n') }
+        append(entry.number)
+    }
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, text)
+    }
+    context.startActivity(Intent.createChooser(intent, "Поделиться"))
 }

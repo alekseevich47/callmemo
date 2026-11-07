@@ -19,8 +19,9 @@ class PlayerViewModel @Inject constructor(
         number: String,
         uri: String?,
         durationHintMs: Long = 0L,
+        startedAtEpochMs: Long = 0L,
     ) {
-        controller.play(callId, contactName, number, uri, durationHintMs)
+        controller.play(callId, contactName, number, uri, durationHintMs, startedAtEpochMs)
     }
 
     fun toggle() = controller.toggle()

@@ -10,6 +10,7 @@ import android.provider.CallLog
 import androidx.core.content.ContextCompat
 import com.alekseevich47.callmemo.domain.model.CallDirection
 import com.alekseevich47.callmemo.domain.model.CallLogEntry
+import com.alekseevich47.callmemo.util.PhoneNumberUtils
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
@@ -70,7 +71,7 @@ class SystemCallLogDataSource @Inject constructor(
 
     fun historyForNumber(number: String): List<CallLogEntry> {
         if (!hasPermission()) return emptyList()
-        return readCalls(numberFilter = number)
+        return readCalls().filter { PhoneNumberUtils.sameSubscriber(it.number, number) }
     }
 
     fun getById(id: Long): CallLogEntry? {

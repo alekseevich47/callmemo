@@ -4,6 +4,7 @@ import com.alekseevich47.callmemo.data.local.CalendarItemEntity
 import com.alekseevich47.callmemo.data.local.CallMemoDatabase
 import com.alekseevich47.callmemo.data.local.NoteEntity
 import com.alekseevich47.callmemo.data.local.toDomain
+import com.alekseevich47.callmemo.data.recording.RecordingLocator
 import com.alekseevich47.callmemo.data.secure.SecureSettingsStore
 import com.alekseevich47.callmemo.data.system.SystemCallLogDataSource
 import com.alekseevich47.callmemo.data.system.SystemContactsDataSource
@@ -14,8 +15,10 @@ import com.alekseevich47.callmemo.domain.model.CallDetail
 import com.alekseevich47.callmemo.domain.model.CallLogEntry
 import com.alekseevich47.callmemo.domain.model.ContactItem
 import com.alekseevich47.callmemo.domain.model.NoteItem
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -28,6 +31,7 @@ class CallMemoRepository @Inject constructor(
     private val settingsStore: SecureSettingsStore,
     private val systemCallLog: SystemCallLogDataSource,
     private val systemContacts: SystemContactsDataSource,
+    private val recordingLocator: RecordingLocator,
 ) {
     val settings: Flow<AppSettings> = settingsStore.settings
 
@@ -50,14 +54,42 @@ class CallMemoRepository @Inject constructor(
         return db.calendarDao().observeBetween(start, end).map { list -> list.map { it.toDomain(zoneId) } }
     }
 
-    suspend fun callDetail(id: Long): CallDetail? {
-        val entry = systemCallLog.getById(id) ?: return null
-        val history = systemCallLog.historyForNumber(entry.number)
-        return CallDetail(
+    suspend fun callDetail(id: Long): CallDetail? = withContext(Dispatchers.IO) {
+        val raw = systemCallLog.getById(id) ?: return@withContext null
+        val recording = raw.recordingUri
+            ?: recordingLocator.findRecording(
+                number = raw.number,
+                startedAtEpochMs = raw.startedAt.toEpochMilli(),
+                durationSeconds = raw.durationSeconds,
+            )
+        val entry = raw.copy(recordingUri = recording)
+        val history = systemCallLog.historyForNumber(entry.number).map { item ->
+            if (item.recordingUri != null) {
+                item
+            } else {
+                item.copy(
+                    recordingUri = recordingLocator.findRecording(
+                        number = item.number,
+                        startedAtEpochMs = item.startedAt.toEpochMilli(),
+                        durationSeconds = item.durationSeconds,
+                    ),
+                )
+            }
+        }
+        CallDetail(
             entry = entry,
             history = history,
             transcript = entry.transcriptPreview,
         )
+    }
+
+    suspend fun resolveRecording(entry: CallLogEntry): String? = withContext(Dispatchers.IO) {
+        entry.recordingUri
+            ?: recordingLocator.findRecording(
+                number = entry.number,
+                startedAtEpochMs = entry.startedAt.toEpochMilli(),
+                durationSeconds = entry.durationSeconds,
+            )
     }
 
     suspend fun updateSettings(transform: (AppSettings) -> AppSettings) {

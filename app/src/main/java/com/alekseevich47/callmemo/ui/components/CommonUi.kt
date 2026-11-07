@@ -1,20 +1,25 @@
 package com.alekseevich47.callmemo.ui.components
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,19 +40,22 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.alekseevich47.callmemo.player.PlaybackUiState
@@ -58,6 +66,7 @@ import com.alekseevich47.callmemo.ui.theme.CallMemoMuted
 import com.alekseevich47.callmemo.util.TimeFormat
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 @Composable
 fun ScreenHeader(
@@ -140,8 +149,8 @@ private fun tabIcon(destination: TopLevelDestination): ImageVector = when (desti
 }
 
 /**
- * Separate floating glass chips over content (no plate / no inner rectangles).
- * Active tab: only icon + label color.
+ * Near-transparent glass plate under rounded tab chips.
+ * Active tab: icon/label color only; press ripple follows rounded corners.
  */
 @Composable
 fun GlassBottomBar(
@@ -149,20 +158,29 @@ fun GlassBottomBar(
     onSelect: (TopLevelDestination) -> Unit,
     barModifier: Modifier = Modifier,
 ) {
-    Row(
+    val plateShape = RoundedCornerShape(28.dp)
+    Box(
         modifier = barModifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        TopLevelDestination.entries.forEach { dest ->
-            GlassTabChip(
-                label = dest.label,
-                icon = tabIcon(dest),
-                selected = dest == current,
-                onClick = { onSelect(dest) },
-            )
+        Row(
+            modifier = Modifier
+                .background(Color.White.copy(alpha = 0.18f), plateShape)
+                .border(width = 0.7.dp, color = Color.White.copy(alpha = 0.55f), shape = plateShape)
+                .padding(horizontal = 6.dp, vertical = 5.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TopLevelDestination.entries.forEach { dest ->
+                GlassTabChip(
+                    label = dest.label,
+                    icon = tabIcon(dest),
+                    selected = dest == current,
+                    onClick = { onSelect(dest) },
+                )
+            }
         }
     }
 }
@@ -176,13 +194,18 @@ private fun GlassTabChip(
 ) {
     val shape = RoundedCornerShape(20.dp)
     val tint = if (selected) CallMemoBlue else CallMemoMuted
+    val interaction = remember { MutableInteractionSource() }
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .widthIn(min = 68.dp, max = 76.dp)
-            .background(Color.White.copy(alpha = 0.62f), shape)
-            .border(width = 0.8.dp, color = Color.White.copy(alpha = 0.95f), shape = shape)
-            .clickable(onClick = onClick)
+            .widthIn(min = 64.dp, max = 74.dp)
+            .clip(shape)
+            .clickable(
+                interactionSource = interaction,
+                indication = ripple(bounded = true, color = CallMemoBlue.copy(alpha = 0.22f)),
+                role = Role.Tab,
+                onClick = onClick,
+            )
             .padding(horizontal = 6.dp, vertical = 8.dp),
     ) {
         Icon(
@@ -210,9 +233,11 @@ fun InfoCircleButton(
     onClick: () -> Unit,
     contentDescription: String = "Подробнее",
 ) {
+    val shape = CircleShape
     Box(
         modifier = Modifier
             .size(40.dp)
+            .clip(shape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -242,94 +267,124 @@ fun StickyPlayerBar(
     onDismiss: () -> Unit,
     barModifier: Modifier = Modifier,
 ) {
-    var dragAccum by remember { mutableFloatStateOf(0f) }
     val duration = state.durationMs.coerceAtLeast(1L)
     val progress = (state.positionMs.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
     val shape = RoundedCornerShape(20.dp)
+    val offsetX = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
 
-    Column(
-        modifier = barModifier
-            .fillMaxWidth()
-            .padding(horizontal = 14.dp)
-            .pointerInput(Unit) {
-                detectHorizontalDragGestures(
-                    onDragEnd = {
-                        if (abs(dragAccum) > 120f) onDismiss()
-                        dragAccum = 0f
-                    },
-                    onHorizontalDrag = { _, dragAmount ->
-                        dragAccum += dragAmount
-                    },
-                )
-            }
-            .background(CallMemoInk, shape)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
+    BoxWithConstraints(modifier = barModifier.fillMaxWidth()) {
+        val widthPx = with(density) { maxWidth.toPx() }.coerceAtLeast(1f)
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(onClick = onOpenDetail),
+                .padding(horizontal = 14.dp)
+                .offset { IntOffset(offsetX.value.roundToInt(), 0) }
+                .pointerInput(widthPx) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            scope.launch {
+                                val hidden = abs(offsetX.value) / widthPx
+                                if (hidden >= 0.6f) {
+                                    val target = if (offsetX.value >= 0f) widthPx else -widthPx
+                                    offsetX.animateTo(target, spring(stiffness = Spring.StiffnessMedium))
+                                    onDismiss()
+                                    offsetX.snapTo(0f)
+                                } else {
+                                    offsetX.animateTo(
+                                        0f,
+                                        spring(
+                                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                                            stiffness = Spring.StiffnessMediumLow,
+                                        ),
+                                    )
+                                }
+                            }
+                        },
+                        onHorizontalDrag = { change, dragAmount ->
+                            change.consume()
+                            scope.launch {
+                                offsetX.snapTo(offsetX.value + dragAmount)
+                            }
+                        },
+                    )
+                }
+                .background(CallMemoInk, shape)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable(onClick = onOpenDetail),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = state.contactName.ifBlank { state.number },
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = state.number,
+                        color = Color.White.copy(alpha = 0.7f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                TextButton(onClick = onCycleSpeed) {
+                    Text(
+                        text = speedLabel(state.speed),
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                IconButton(onClick = onToggle) {
+                    Icon(
+                        imageVector = if (state.playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
+                        contentDescription = if (state.playing) "Пауза" else "Играть",
+                        tint = Color.White,
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            WaveformSeek(
+                progress = progress,
+                filledColor = CallMemoBlue,
+                emptyColor = Color.White.copy(alpha = 0.25f),
+                onSeekFraction = { fraction -> onSeek((fraction * duration).toLong()) },
+            )
+            Spacer(Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
                 Text(
-                    text = state.contactName.ifBlank { state.number },
-                    color = Color.White,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = state.number,
+                    text = TimeFormat.duration(state.positionMs / 1000),
                     color = Color.White.copy(alpha = 0.7f),
                     style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
-            }
-            TextButton(onClick = onCycleSpeed) {
                 Text(
-                    text = speedLabel(state.speed),
-                    color = Color.White,
-                    fontWeight = FontWeight.SemiBold,
+                    text = TimeFormat.duration(state.durationMs / 1000),
+                    color = Color.White.copy(alpha = 0.7f),
+                    style = MaterialTheme.typography.bodyMedium,
                 )
             }
-            IconButton(onClick = onToggle) {
-                Icon(
-                    imageVector = if (state.playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
-                    contentDescription = if (state.playing) "Пауза" else "Играть",
-                    tint = Color.White,
-                )
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        WaveformSeek(
-            progress = progress,
-            onSeekFraction = { fraction -> onSeek((fraction * duration).toLong()) },
-        )
-        Spacer(Modifier.height(6.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(
-                text = TimeFormat.duration(state.positionMs / 1000),
-                color = Color.White.copy(alpha = 0.7f),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Text(
-                text = TimeFormat.duration(state.durationMs / 1000),
-                color = Color.White.copy(alpha = 0.7f),
-                style = MaterialTheme.typography.bodyMedium,
-            )
         }
     }
 }
 
 @Composable
-private fun WaveformSeek(
+fun WaveformSeek(
     progress: Float,
     onSeekFraction: (Float) -> Unit,
+    filledColor: Color = CallMemoBlue,
+    emptyColor: Color = CallMemoBlue.copy(alpha = 0.25f),
+    barModifier: Modifier = Modifier,
 ) {
     val bars = remember {
         listOf(
@@ -339,7 +394,7 @@ private fun WaveformSeek(
         )
     }
     Box(
-        modifier = Modifier
+        modifier = barModifier
             .fillMaxWidth()
             .height(36.dp)
             .pointerInput(Unit) {
@@ -367,9 +422,7 @@ private fun WaveformSeek(
                         .weight(1f)
                         .height((12 + amp * 22).dp)
                         .clip(RoundedCornerShape(3.dp))
-                        .background(
-                            if (filled) CallMemoBlue else Color.White.copy(alpha = 0.25f),
-                        ),
+                        .background(if (filled) filledColor else emptyColor),
                 )
             }
         }

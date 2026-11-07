@@ -26,4 +26,10 @@ class PhoneNumberUtilsTest {
         assertThat(PhoneNumberUtils.displayOrUnknown(null, "900")).isEqualTo("900")
         assertThat(PhoneNumberUtils.displayOrUnknown("Анна", "900")).isEqualTo("Анна")
     }
+
+    @Test
+    fun sameSubscriberIgnoresFormatting() {
+        assertThat(PhoneNumberUtils.sameSubscriber("+7 900 111-22-33", "89001112233")).isTrue()
+        assertThat(PhoneNumberUtils.sameSubscriber("+79001112233", "+79009998877")).isFalse()
+    }
 }
