@@ -1,0 +1,3 @@
+-keepclassmembers class * extends androidx.room.RoomDatabase { *; }
+-keep class * extends androidx.room.RoomDatabase
+-dontwarn javax.annotation.**

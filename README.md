@@ -10,4 +10,15 @@ Android-звонилка (замена штатной) с импортом за�
 
 ## Сборка APK
 
-Собирается в CI / облаке. Для установки на телефон достаточно скачать готовый APK — локальная сборка с телефона не нужна.
+```bash
+./gradlew assembleDebug
+# APK: app/build/outputs/apk/debug/app-debug.apk
+```
+
+Также GitHub Actions → artifact `callmemo-debug-apk`. С телефона достаточно скачать и установить.
+
+## Документация
+
+- [docs/STACK.md](docs/STACK.md) — стек, запись, STT
+- [docs/UI.md](docs/UI.md) — экраны и функционал
+- [docs/mockups/callmemo-ui.png](docs/mockups/callmemo-ui.png) — макет
