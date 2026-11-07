@@ -453,5 +453,8 @@ fun SectionCard(
     }
 }
 
-/** Shared FAB bottom inset above glass tabs (aligned across tabs). */
-val ChromeFabBottomPadding = 88.dp
+/**
+ * Shared FAB bottom inset above glass tabs (aligned across tabs).
+ * Slightly below the original ~96.dp floating position — not down next to the menu.
+ */
+val ChromeFabBottomPadding = 90.dp

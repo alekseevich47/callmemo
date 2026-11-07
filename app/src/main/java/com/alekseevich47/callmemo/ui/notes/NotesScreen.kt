@@ -97,7 +97,7 @@ fun NotesRoute(
             },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 22.dp, bottom = com.alekseevich47.callmemo.ui.components.ChromeFabBottomPadding - 6.dp),
+                .padding(end = 22.dp, bottom = com.alekseevich47.callmemo.ui.components.ChromeFabBottomPadding),
             shape = CircleShape,
             containerColor = CallMemoBlue,
             contentColor = Color.White,

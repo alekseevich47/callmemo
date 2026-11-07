@@ -396,7 +396,8 @@ fun CallMemoAppRoot(
                 .navigationBarsPadding()
                 .padding(
                     end = 22.dp,
-                    bottom = if (showPlayer) ChromeFabBottomPadding + 56.dp else ChromeFabBottomPadding - 6.dp,
+                    // ~90.dp = чуть ниже прежних 96.dp; с плеером поднимаем выше плашки.
+                    bottom = if (showPlayer) ChromeFabBottomPadding + 58.dp else ChromeFabBottomPadding,
                 ),
             enter = fadeIn(),
             exit = fadeOut(),
