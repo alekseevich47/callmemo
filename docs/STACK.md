@@ -4,7 +4,7 @@
 > Цель: не забывать, **что уже есть**, **где лежит** и **как применяется**.  
 > UI-спека / макеты: [UI.md](UI.md). Макеты: `docs/mockups/`.
 
-**Последнее обновление:** 2026-11-07 (Tecno PhoneRecord/<number>/*.aac + CodePen liquid glass).
+**Последнее обновление:** 2026-11-08 (dialpad bottom/keys/scroll, glass 25%+halo, fast detail).
 
 ---
 
@@ -169,9 +169,9 @@ Telecom → `MainActivity.ACTION_SHOW_INCOMING` / `SHOW_IN_CALL` / `OPEN_CALL_DE
 - Компонент: `LiquidGlassPlate` (`ui/components/LiquidGlass.kt`), референс CodePen `giladfeder/qErQmXO`.
 - **Haze**: `hazeSource` на контенте (`NavHost`), `hazeEffect` на плашке — реальный backdrop blur текста под меню.
 - **Distortion** (API 33+): AGSL RuntimeShader (turbulence/displacement) на frost-слое; иконки/текст чипов остаются crisp сверху.
-- Fill почти прозрачный (**α≈0.03**, как CodePen) + cool tint; **не** молочный белый.
-- Blur ~3dp; AGSL distortion strength ≈42 (feDisplacementMap scale~85).
-- Применять ко всем будущим chrome-плашкам с glass; не дублировать непрозрачный белый фон без Haze.
+- Плашка: белый fill **α=0.25** + blur ~22dp + AGSL distort strength ≈56.
+- Halo: progressive radial haze (~22dp вокруг плашки) — лёгкое замыливание контента рядом.
+- Применять ко всем будущим chrome-плашкам с glass.
 
 ### Glass bottom bar
 
@@ -196,12 +196,10 @@ Telecom → `MainActivity.ACTION_SHOW_INCOMING` / `SHOW_IN_CALL` / `OPEN_CALL_DE
 
 ### Dialpad sheet
 
-- На разделе **Звонки** открывается сразу; скролл списка вниз — плавно уезжает вниз; FAB клавиатуры **всегда** видна в закрытом состоянии.
-- Opaque half-sheet (~62% высоты, min ~460dp — чуть выше прежних 58%/420dp); enter/exit slide **внутри** sheet.
-- Dismiss при **≥ 30%** высоты на отпускании, иначе snap back.
-- Кнопка вызова не пересекается с меню за счёт **высоты шторки** (не подъёма над меню); bottom pad = tabs.
-- Номер по центру над клавишами; backspace справа.
-- Закрывать при уходе с Calls; при возврате на Calls — снова открыть.
+- На разделе **Звонки** открывается сразу; **любой успешный** скролл списка (не overscroll) — плавно закрывает; FAB **всегда** видна в закрытом состоянии.
+- Белая шторка до **низа экрана** (под меню); pad только для контента (tabs + nav bars).
+- Клавиши: фиксированная высота ряда ~52dp / hit 56dp (не weight) — FAB вызова выше меню.
+- Dismiss ≥ **30%**; уход с Calls → unmount; возврат → open; dismiss работает и mid-enter.
 
 ### FAB
 
@@ -239,7 +237,7 @@ Telecom → `MainActivity.ACTION_SHOW_INCOMING` / `SHOW_IN_CALL` / `OPEN_CALL_DE
 
 - `observeCalls(query, fromEpochMs?, toEpochMs?)`
 - `observeContacts(query)`
-- `callDetail(id)` — entry + history; `RecordingLocator` только для **открытого** entry (не N× scan по history)
+- `callDetail(id)` — быстрый CallLog only (entry + history); запись резолвится **lazy на play**
 - `observeNotes` / `addNote`
 - `observeCalendar` / `observeCalendarDay` / `addCalendarItem`
 - `settings` / `updateSettings` / `maskedApiKey`
@@ -358,7 +356,7 @@ push main | cursor/**  +  pull_request
 6. FAB: только через `ChromeFab` / `ChromeFabBottomPadding=90.dp`; не прижимать к меню.  
 7. Длительность плеера = media duration / duration звонка; **не** хардкодить 20 с.  
 8. Room call_logs/contacts — не писать «в журнал» из InCall вместо системного CallLog, пока нет явной стратегии кэша.  
-9. Glass — `LiquidGlassPlate` + Haze + AGSL distort; fill α≈0.03, strength≈42 (CodePen).  
+9. Glass — fill α=0.25 + blur 22dp + AGSL≈56 + progressive halo.  
 10. Dialpad dismiss: порог **30%**; Calls → open; scroll → close; FAB always when closed.  
 11. Не использовать `topLevel!!` в chrome во время exit-анимации — только `lastTopLevel`.  
 12. Date pickers — tennis-модалки из `DatePickerModals.kt`, не Material DatePickerDialog.  

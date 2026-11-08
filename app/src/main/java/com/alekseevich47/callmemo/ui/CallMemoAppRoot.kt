@@ -18,6 +18,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -221,7 +222,9 @@ fun CallMemoAppRoot(
         if (dest == TopLevelDestination.CALLS) {
             openDialpad()
         } else {
+            // Leave Calls: drop sheet immediately so remount is clean on return.
             dialpadOpen = false
+            dialpadMounted = false
         }
         navController.navigate(dest.route) {
             popUpTo(TopLevelDestination.CALLS.route) { saveState = true }
@@ -289,8 +292,8 @@ fun CallMemoAppRoot(
                         it.permission == Manifest.permission.READ_CALL_LOG && it.status.isGranted
                     },
                     onRequestPermissions = { permissionState.launchMultiplePermissionRequest() },
-                    onScrollCalls = { scrollingDown ->
-                        if (scrollingDown) dialpadOpen = false
+                    onCallsListScrolled = {
+                        if (dialpadOpen || dialpadMounted) dialpadOpen = false
                     },
                 )
             }
@@ -423,15 +426,17 @@ fun CallMemoAppRoot(
             )
         }
 
-        // Sheet owns enter/exit slide; stay mounted until dismiss animation finishes.
+        // Sheet owns enter/exit slide; white fills to screen bottom under the tabs.
         if (dialpadMounted && topLevel == TopLevelDestination.CALLS && !inCallChrome) {
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
                     .zIndex(2f),
             ) {
                 DialpadSheet(
                     expanded = dialpadOpen,
+                    // Space above tabs for the call FAB; sheet bg still draws under menu.
                     bottomContentPadding = PaddingValues(bottom = dialpadBottomPad),
                     initialNumber = dialpadSeed,
                     onDismissFinished = {

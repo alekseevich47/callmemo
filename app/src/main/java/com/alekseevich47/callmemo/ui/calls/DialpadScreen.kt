@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -59,6 +60,8 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 private const val DismissThreshold = 0.30f
+private val KeyRowHeight = 52.dp
+private val KeyHitSize = 56.dp
 
 @Composable
 fun DialpadSheet(
@@ -75,21 +78,21 @@ fun DialpadSheet(
     }
 
     val density = LocalDensity.current
-    // Start off-screen; enter animation snaps to measured height then slides up.
     val offsetY = remember { Animatable(10_000f) }
     val scope = rememberCoroutineScope()
     var dismissing by remember { mutableStateOf(false) }
     var entered by remember { mutableStateOf(false) }
-    BoxWithConstraints(modifier = sheetModifier.fillMaxWidth()) {
-        // Slightly taller sheet so the call FAB clears the glass tabs without
-        // lifting the whole sheet above the menu.
-        val minSheetPx = with(density) { 460.dp.toPx() }
-        val maxAllowedPx = constraints.maxHeight * 0.76f
-        val targetPx = constraints.maxHeight * 0.62f
+
+    BoxWithConstraints(
+        modifier = sheetModifier.fillMaxWidth(),
+    ) {
+        // Tall enough that white fills from bottom under the tabs (no call-list peek).
+        val minSheetPx = with(density) { 480.dp.toPx() }
+        val maxAllowedPx = constraints.maxHeight * 0.78f
+        val targetPx = constraints.maxHeight * 0.64f
         val sheetHeightPx = max(minSheetPx, targetPx).coerceAtMost(maxAllowedPx)
         val sheetHeight = with(density) { sheetHeightPx.toDp() }
 
-        // Enter from below once; never snap back to 0 after a dismiss animation.
         LaunchedEffect(sheetHeightPx) {
             if (dismissing || entered) return@LaunchedEffect
             offsetY.snapTo(sheetHeightPx)
@@ -100,23 +103,19 @@ fun DialpadSheet(
             entered = true
         }
 
-        // External collapse (tab scroll / section change) — animate out then notify.
+        // Collapse on external signal even mid-enter (tab return + scroll race).
         LaunchedEffect(expanded) {
-            if (!expanded && entered && !dismissing) {
-                dismissing = true
-                offsetY.animateTo(sheetHeightPx, tween(durationMillis = 240))
-                onDismissFinished()
-            }
+            if (expanded || dismissing) return@LaunchedEffect
+            dismissing = true
+            offsetY.animateTo(sheetHeightPx, tween(durationMillis = 220))
+            onDismissFinished()
         }
 
         fun dismissSheet() {
             if (dismissing) return
             dismissing = true
             scope.launch {
-                offsetY.animateTo(
-                    sheetHeightPx,
-                    tween(durationMillis = 220),
-                )
+                offsetY.animateTo(sheetHeightPx, tween(durationMillis = 220))
                 onDismissFinished()
             }
         }
@@ -125,9 +124,12 @@ fun DialpadSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(sheetHeight)
+                .align(Alignment.BottomCenter)
                 .offset { IntOffset(0, offsetY.value.roundToInt()) }
                 .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
                 .background(Color.White)
+                // White sheet reaches the physical bottom; insets only shift controls.
+                .navigationBarsPadding()
                 .padding(bottomContentPadding)
                 .padding(horizontal = 12.dp)
                 .pointerInput(sheetHeightPx, dismissing) {
@@ -154,7 +156,6 @@ fun DialpadSheet(
                         onVerticalDrag = { change, amount ->
                             change.consume()
                             scope.launch {
-                                // Only drag down; pulling back up reduces offset (can cancel dismiss).
                                 offsetY.snapTo((offsetY.value + amount).coerceAtLeast(0f))
                             }
                         },
@@ -165,7 +166,7 @@ fun DialpadSheet(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 10.dp, bottom = 6.dp)
+                    .padding(top = 10.dp, bottom = 4.dp)
                     .clickable(enabled = !dismissing, onClick = { dismissSheet() }),
                 contentAlignment = Alignment.Center,
             ) {
@@ -178,12 +179,11 @@ fun DialpadSheet(
                 )
             }
 
-            // Number centered over the keypad; backspace overlays on the right.
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 4.dp)
-                    .height(48.dp),
+                    .height(44.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -191,7 +191,7 @@ fun DialpadSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 48.dp),
-                    style = MaterialTheme.typography.headlineLarge.copy(fontSize = 30.sp),
+                    style = MaterialTheme.typography.headlineLarge.copy(fontSize = 28.sp),
                     textAlign = TextAlign.Center,
                     color = CallMemoInk,
                     maxLines = 1,
@@ -213,25 +213,26 @@ fun DialpadSheet(
                 }
             }
 
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(2.dp))
             val keys = listOf(
                 listOf("1", "2", "3"),
                 listOf("4", "5", "6"),
                 listOf("7", "8", "9"),
                 listOf("*", "0", "#"),
             )
+            // Fixed row heights (not weight) so the call FAB sits above the glass tabs.
             keys.forEach { row ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f, fill = true),
+                        .height(KeyRowHeight),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     row.forEach { key ->
                         Box(
                             modifier = Modifier
-                                .size(72.dp)
+                                .size(KeyHitSize)
                                 .clip(CircleShape)
                                 .clickable(enabled = !dismissing) { number += key },
                             contentAlignment = Alignment.Center,
@@ -239,7 +240,7 @@ fun DialpadSheet(
                             Text(
                                 text = key,
                                 textAlign = TextAlign.Center,
-                                style = MaterialTheme.typography.headlineMedium,
+                                style = MaterialTheme.typography.headlineMedium.copy(fontSize = 26.sp),
                                 color = CallMemoInk,
                             )
                         }
@@ -249,18 +250,20 @@ fun DialpadSheet(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp),
+                    .padding(top = 4.dp, bottom = 4.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 FloatingActionButton(
                     onClick = { if (number.isNotBlank()) onCall(number) },
-                    modifier = Modifier.shadow(
-                        elevation = 10.dp,
-                        shape = CircleShape,
-                        clip = false,
-                        ambientColor = Color.Black.copy(alpha = 0.28f),
-                        spotColor = Color.Black.copy(alpha = 0.36f),
-                    ),
+                    modifier = Modifier
+                        .size(58.dp)
+                        .shadow(
+                            elevation = 10.dp,
+                            shape = CircleShape,
+                            clip = false,
+                            ambientColor = Color.Black.copy(alpha = 0.28f),
+                            spotColor = Color.Black.copy(alpha = 0.36f),
+                        ),
                     containerColor = CallMemoBlue,
                     contentColor = Color.White,
                     shape = CircleShape,
@@ -274,6 +277,7 @@ fun DialpadSheet(
                     Icon(Icons.Outlined.Call, contentDescription = "Позвонить")
                 }
             }
+            Spacer(Modifier.weight(1f, fill = true))
         }
     }
 }

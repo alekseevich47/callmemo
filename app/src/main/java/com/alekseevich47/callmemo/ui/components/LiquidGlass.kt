@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -19,38 +20,40 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import dev.chrisbanes.haze.HazeProgressive
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
 
 /**
- * Liquid glass tokens matching CodePen giladfeder/qErQmXO:
- * nearly clear fill (rgba 255,255,255,0.03), light blur, strong refraction.
+ * Liquid glass tokens — Telegram/CodePen style: white 25% plate + strong blur/refraction,
+ * with a soft progressive haze halo around the plate.
  */
 object LiquidGlassTokens {
-    /** CodePen ::before uses ~0.03 white — milky white kills the liquid look. */
-    val Fill = Color.White.copy(alpha = 0.03f)
-    val TintCool = Color(0xFFE8EEF8).copy(alpha = 0.10f)
-    val Specular = Color.White.copy(alpha = 0.22f)
-    val ShadowTint = Color(0xFF1F2687).copy(alpha = 0.21f)
+    /** Solid white fill at 25% opacity on the plate itself. */
+    val Fill = Color.White.copy(alpha = 0.25f)
+    val TintCool = Color(0xFFE8EEF8).copy(alpha = 0.14f)
+    val Specular = Color.White.copy(alpha = 0.45f)
+    val ShadowTint = Color(0xFF1F2687).copy(alpha = 0.22f)
     val DefaultCorner = 28.dp
-    /** CodePen backdrop-filter: blur(3px). */
-    val BlurRadius = 3.dp
-    val Elevation = 18.dp
-    /** AGSL displacement strength ≈ SVG feDisplacementMap scale≈85 on phone UI. */
-    const val DistortStrength = 42f
+    val BlurRadius = 22.dp
+    val HaloBlurRadius = 16.dp
+    val HaloExtent = 22.dp
+    val Elevation = 16.dp
+    /** AGSL displacement — stronger liquid refraction under the plate. */
+    const val DistortStrength = 56f
 }
 
 /**
- * Approx of CodePen:
- * feTurbulence fractalNoise baseFrequency 0.012, 2 octaves → feDisplacementMap scale 85.
+ * Approx of CodePen feTurbulence + feDisplacementMap (scale ~85).
  */
 private const val LiquidDistortAgsl = """
 uniform shader content;
@@ -59,7 +62,6 @@ uniform float strength;
 
 half4 main(float2 fragCoord) {
     float2 uv = fragCoord / size;
-    // Low-frequency fractal-ish noise (2 octaves), not high-freq shimmer.
     float n1 = sin(uv.x * 7.5 + uv.y * 5.2) * cos(uv.y * 6.1 - uv.x * 3.4);
     float n2 = sin(uv.x * 15.0 - uv.y * 11.0) * cos(uv.x * 9.0 + uv.y * 13.0) * 0.55;
     float n3 = sin((uv.x + uv.y) * 4.2) * cos((uv.x - uv.y) * 5.8) * 0.35;
@@ -71,7 +73,8 @@ half4 main(float2 fragCoord) {
 """
 
 /**
- * Glass plate. Backdrop is blurred + strongly refracted; interactive [content] stays sharp.
+ * Glass plate with optional outer progressive blur halo.
+ * Interactive [content] stays sharp above the distorted backdrop.
  */
 @Composable
 fun LiquidGlassPlate(
@@ -79,6 +82,7 @@ fun LiquidGlassPlate(
     modifier: Modifier = Modifier,
     shape: Shape = RoundedCornerShape(LiquidGlassTokens.DefaultCorner),
     elevation: Dp = LiquidGlassTokens.Elevation,
+    halo: Boolean = true,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val distortShader = remember {
@@ -91,69 +95,98 @@ fun LiquidGlassPlate(
     var shaderSize by remember { mutableStateOf(IntSize.Zero) }
 
     Box(
-        modifier = modifier
-            .shadow(
-                elevation = elevation,
-                shape = shape,
-                clip = false,
-                ambientColor = LiquidGlassTokens.ShadowTint,
-                spotColor = LiquidGlassTokens.ShadowTint,
-            )
-            .clip(shape),
+        modifier = modifier.then(
+            if (halo) Modifier.padding(LiquidGlassTokens.HaloExtent) else Modifier,
+        ),
     ) {
-        // Backdrop layer: haze sample + liquid distortion (CodePen ::after).
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .onSizeChanged { shaderSize = it }
-                .hazeEffect(
-                    state = hazeState,
-                    style = HazeStyle(
-                        backgroundColor = Color.Transparent,
-                        tints = listOf(
-                            HazeTint(LiquidGlassTokens.TintCool),
-                            HazeTint(LiquidGlassTokens.Fill),
+        if (halo) {
+            // Soft blur that fades out around the plate (content near the chip softens).
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .padding(-LiquidGlassTokens.HaloExtent)
+                    .hazeEffect(
+                        state = hazeState,
+                        style = HazeStyle(
+                            backgroundColor = Color.Transparent,
+                            tints = emptyList(),
+                            blurRadius = LiquidGlassTokens.HaloBlurRadius,
+                            noiseFactor = 0.04f,
                         ),
-                        blurRadius = LiquidGlassTokens.BlurRadius,
-                        noiseFactor = 0.12f,
-                    ),
-                )
-                .then(
-                    if (distortShader != null && shaderSize.width > 0 && shaderSize.height > 0) {
-                        Modifier.graphicsLayer {
-                            distortShader.setFloatUniform(
-                                "size",
-                                shaderSize.width.toFloat(),
-                                shaderSize.height.toFloat(),
-                            )
-                            distortShader.setFloatUniform(
-                                "strength",
-                                LiquidGlassTokens.DistortStrength,
-                            )
-                            renderEffect = RenderEffect
-                                .createRuntimeShaderEffect(distortShader, "content")
-                                .asComposeRenderEffect()
-                        }
-                    } else {
-                        Modifier
+                    ) {
+                        progressive = HazeProgressive.RadialGradient(
+                            centerIntensity = 1f,
+                            radiusIntensity = 0f,
+                        )
                     },
-                ),
-        )
-        // Specular rim + faint gradient (CodePen ::before) — keep nearly clear.
+            )
+        }
+
         Box(
             modifier = Modifier
-                .matchParentSize()
-                .border(1.dp, LiquidGlassTokens.Specular, shape)
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = 0.08f),
-                            Color.White.copy(alpha = 0.02f),
-                            Color.Transparent,
+                .shadow(
+                    elevation = elevation,
+                    shape = shape,
+                    clip = false,
+                    ambientColor = LiquidGlassTokens.ShadowTint,
+                    spotColor = LiquidGlassTokens.ShadowTint,
+                )
+                .clip(shape),
+        ) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .onSizeChanged { shaderSize = it }
+                    .hazeEffect(
+                        state = hazeState,
+                        style = HazeStyle(
+                            backgroundColor = LiquidGlassTokens.Fill,
+                            tints = listOf(
+                                HazeTint(LiquidGlassTokens.Fill),
+                                HazeTint(LiquidGlassTokens.TintCool),
+                            ),
+                            blurRadius = LiquidGlassTokens.BlurRadius,
+                            noiseFactor = 0.10f,
+                        ),
+                    )
+                    .then(
+                        if (distortShader != null && shaderSize.width > 0 && shaderSize.height > 0) {
+                            Modifier.graphicsLayer {
+                                distortShader.setFloatUniform(
+                                    "size",
+                                    shaderSize.width.toFloat(),
+                                    shaderSize.height.toFloat(),
+                                )
+                                distortShader.setFloatUniform(
+                                    "strength",
+                                    LiquidGlassTokens.DistortStrength,
+                                )
+                                renderEffect = RenderEffect
+                                    .createRuntimeShaderEffect(distortShader, "content")
+                                    .asComposeRenderEffect()
+                            }
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .background(LiquidGlassTokens.Fill),
+            )
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .border(1.dp, LiquidGlassTokens.Specular, shape)
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(
+                                Color.White.copy(alpha = 0.28f),
+                                Color.White.copy(alpha = 0.08f),
+                                Color.Transparent,
+                            ),
+                            tileMode = TileMode.Clamp,
                         ),
                     ),
-                ),
-        )
-        content()
+            )
+            content()
+        }
     }
 }

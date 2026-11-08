@@ -67,7 +67,7 @@ fun CallsRoute(
     listBottomPadding: Dp = 140.dp,
     hasCallLogPermission: Boolean = true,
     onRequestPermissions: () -> Unit = {},
-    onScrollCalls: (scrollingDown: Boolean) -> Unit = {},
+    onCallsListScrolled: () -> Unit = {},
     viewModel: CallsViewModel = hiltViewModel(),
 ) {
     val calls by viewModel.calls.collectAsStateWithLifecycle()
@@ -86,7 +86,7 @@ fun CallsRoute(
         listBottomPadding = listBottomPadding,
         hasCallLogPermission = hasCallLogPermission,
         onRequestPermissions = onRequestPermissions,
-        onScrollCalls = onScrollCalls,
+        onCallsListScrolled = onCallsListScrolled,
     )
 }
 
@@ -104,25 +104,29 @@ fun CallsScreen(
     listBottomPadding: Dp = 140.dp,
     hasCallLogPermission: Boolean = true,
     onRequestPermissions: () -> Unit = {},
-    onScrollCalls: (scrollingDown: Boolean) -> Unit = {},
+    onCallsListScrolled: () -> Unit = {},
 ) {
     var showRangePicker by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
+    // Close dialpad only after a real content scroll (skip restore/first snapshot).
     LaunchedEffect(listState) {
-        var lastIndex = 0
-        var lastOffset = 0
+        var lastIndex = listState.firstVisibleItemIndex
+        var lastOffset = listState.firstVisibleItemScrollOffset
+        var primed = false
         snapshotFlow {
             listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
         }.distinctUntilChanged().collect { (index, offset) ->
-            val scrollingDown = index > lastIndex || (index == lastIndex && offset > lastOffset + 4)
-            val scrollingUp = index < lastIndex || (index == lastIndex && offset < lastOffset - 4)
-            when {
-                scrollingDown && (index > 0 || offset > 16) -> onScrollCalls(true)
-                scrollingUp -> onScrollCalls(false)
+            if (!primed) {
+                lastIndex = index
+                lastOffset = offset
+                primed = true
+                return@collect
             }
+            val moved = index != lastIndex || kotlin.math.abs(offset - lastOffset) > 4
             lastIndex = index
             lastOffset = offset
+            if (moved) onCallsListScrolled()
         }
     }
 
