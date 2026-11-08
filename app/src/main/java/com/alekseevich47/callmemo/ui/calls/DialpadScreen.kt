@@ -88,8 +88,12 @@ fun DialpadSheet(
     ) {
         // Tall enough that white fills from bottom under the tabs (no call-list peek).
         val minSheetPx = with(density) { 480.dp.toPx() }
-        val maxAllowedPx = constraints.maxHeight * 0.78f
-        val targetPx = constraints.maxHeight * 0.64f
+        val parentH = constraints.maxHeight
+            .takeIf { it > 0 && it < Int.MAX_VALUE / 4 }
+            ?.toFloat()
+            ?: with(density) { 720.dp.toPx() }
+        val maxAllowedPx = parentH * 0.78f
+        val targetPx = parentH * 0.64f
         val sheetHeightPx = max(minSheetPx, targetPx).coerceAtMost(maxAllowedPx)
         val sheetHeight = with(density) { sheetHeightPx.toDp() }
 

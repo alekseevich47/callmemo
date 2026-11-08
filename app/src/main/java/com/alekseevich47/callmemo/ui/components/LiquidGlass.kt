@@ -75,6 +75,9 @@ half4 main(float2 fragCoord) {
 /**
  * Glass plate with optional outer progressive blur halo.
  * Interactive [content] stays sharp above the distorted backdrop.
+ *
+ * Halo is drawn as a larger outer box (positive padding only — negative
+ * padding crashes Compose with IllegalArgumentException).
  */
 @Composable
 fun LiquidGlassPlate(
@@ -94,17 +97,12 @@ fun LiquidGlassPlate(
     }
     var shaderSize by remember { mutableStateOf(IntSize.Zero) }
 
-    Box(
-        modifier = modifier.then(
-            if (halo) Modifier.padding(LiquidGlassTokens.HaloExtent) else Modifier,
-        ),
-    ) {
+    Box(modifier = modifier) {
         if (halo) {
-            // Soft blur that fades out around the plate (content near the chip softens).
+            // Larger soft blur that fades toward the edges (halo around the plate).
             Box(
                 modifier = Modifier
                     .matchParentSize()
-                    .padding(-LiquidGlassTokens.HaloExtent)
                     .hazeEffect(
                         state = hazeState,
                         style = HazeStyle(
@@ -124,6 +122,7 @@ fun LiquidGlassPlate(
 
         Box(
             modifier = Modifier
+                .then(if (halo) Modifier.padding(LiquidGlassTokens.HaloExtent) else Modifier)
                 .shadow(
                     elevation = elevation,
                     shape = shape,

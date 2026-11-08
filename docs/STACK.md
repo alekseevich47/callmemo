@@ -4,7 +4,7 @@
 > Цель: не забывать, **что уже есть**, **где лежит** и **как применяется**.  
 > UI-спека / макеты: [UI.md](UI.md). Макеты: `docs/mockups/`.
 
-**Последнее обновление:** 2026-11-08 (dialpad bottom/keys/scroll, glass 25%+halo, fast detail).
+**Последнее обновление:** 2026-11-08 (fix startup crash: no negative padding in glass halo).
 
 ---
 
