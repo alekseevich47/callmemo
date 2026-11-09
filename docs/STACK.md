@@ -4,7 +4,7 @@
 > Цель: не забывать, **что уже есть**, **где лежит** и **как применяется**.  
 > UI-спека / макеты: [UI.md](UI.md). Макеты: `docs/mockups/`.
 
-**Последнее обновление:** 2026-11-07 (playback URI fix / haze liquid glass / dialpad-on-calls / sticky detail).
+**Последнее обновление:** 2026-11-08 (fix startup crash: no negative padding in glass halo).
 
 ---
 
@@ -94,7 +94,7 @@ ui/
 util/ PhoneNumberUtils.kt, TimeFormat.kt
 ```
 
-Тесты: `app/src/test/...` — `OemRecordingPathsTest`, `PhoneNumberUtilsTest`, `TimeFormatTest`.
+Тесты: `app/src/test/...` — `OemRecordingPathsTest`, `RecordingLocatorScoreTest`, `PhoneNumberUtilsTest`, `TimeFormatTest`.
 
 ---
 
@@ -169,8 +169,9 @@ Telecom → `MainActivity.ACTION_SHOW_INCOMING` / `SHOW_IN_CALL` / `OPEN_CALL_DE
 - Компонент: `LiquidGlassPlate` (`ui/components/LiquidGlass.kt`), референс CodePen `giladfeder/qErQmXO`.
 - **Haze**: `hazeSource` на контенте (`NavHost`), `hazeEffect` на плашке — реальный backdrop blur текста под меню.
 - **Distortion** (API 33+): AGSL RuntimeShader (turbulence/displacement) на frost-слое; иконки/текст чипов остаются crisp сверху.
-- Fill alpha **~0.36** (−10% от прежних ~0.46); soft shadow + specular rim + highlight.
-- Применять ко всем будущим chrome-плашкам с glass; не дублировать полупрозрачный белый фон без Haze.
+- Плашка: белый fill **α=0.25** + blur ~22dp + AGSL distort strength ≈56.
+- Halo: progressive radial haze (~22dp вокруг плашки) — лёгкое замыливание контента рядом.
+- Применять ко всем будущим chrome-плашкам с glass.
 
 ### Glass bottom bar
 
@@ -190,15 +191,15 @@ Telecom → `MainActivity.ACTION_SHOW_INCOMING` / `SHOW_IN_CALL` / `OPEN_CALL_DE
 - После `STATE_ENDED` повторный play → seek(0) + play (`ended` flag).
 - Нет записи → **не** играть synthetic beeps; bar без звука / `playing=false`.
 - MediaStore URI только через `ContentUris.withAppendedId` (не `withAppendedPath`).
+- Progress в notification: `ACTION_REFRESH` / `NotificationManager.notify` (~2 с), **не** `startForegroundService` каждый тик (это вешало UI).
+- Waveform: лёгкий `MediaExtractor` sample-size preview — **без** MediaCodec PCM decode.
 
 ### Dialpad sheet
 
-- На разделе **Звонки** открывается сразу; скролл списка вниз — плавно уезжает вниз; FAB клавиатуры **всегда** видна в закрытом состоянии.
-- Opaque half-sheet (~62% высоты, min ~460dp — чуть выше прежних 58%/420dp); enter/exit slide **внутри** sheet.
-- Dismiss при **≥ 30%** высоты на отпускании, иначе snap back.
-- Кнопка вызова не пересекается с меню за счёт **высоты шторки** (не подъёма над меню); bottom pad = tabs.
-- Номер по центру над клавишами; backspace справа.
-- Закрывать при уходе с Calls; при возврате на Calls — снова открыть.
+- На разделе **Звонки** открывается сразу; **любой успешный** скролл списка (не overscroll) — плавно закрывает; FAB **всегда** видна в закрытом состоянии.
+- Белая шторка **прибита к низу экрана** (~66% screenH); под меню белый фон, не список звонков.
+- Клавиши компактные; `menuClearance` ~108dp — FAB вызова чуть выше glass-меню.
+- Dismiss ≥ **30%**; уход с Calls → unmount; возврат → open; dismiss работает и mid-enter.
 
 ### FAB
 
@@ -236,7 +237,7 @@ Telecom → `MainActivity.ACTION_SHOW_INCOMING` / `SHOW_IN_CALL` / `OPEN_CALL_DE
 
 - `observeCalls(query, fromEpochMs?, toEpochMs?)`
 - `observeContacts(query)`
-- `callDetail(id)` — entry + history + попытка `RecordingLocator`
+- `callDetail(id)` — быстрый CallLog only (entry + history); запись резолвится **lazy на play**
 - `observeNotes` / `addNote`
 - `observeCalendar` / `observeCalendarDay` / `addCalendarItem`
 - `settings` / `updateSettings` / `maskedApiKey`
@@ -249,8 +250,11 @@ Telecom → `MainActivity.ACTION_SHOW_INCOMING` / `SHOW_IN_CALL` / `OPEN_CALL_DE
 
 ### Recording
 
-- **A (сделано):** `RecordingLocator` — MediaStore в окне времени звонка + скан OEM-папок из `OemRecordingPaths`.
-- Если файла нет → синтетический WAV на **длительность звонка** (не фиксированные 20 с) — чтобы UI/звук не ломались.
+- **A (сделано):** `RecordingLocator` — MediaStore (Audio + Files) + recursive OEM walk.
+- **Tecno/HiOS:** `Music/PhoneRecord/<номер>/*.aac` — цифры в **папке**, рекурсивный обход, soft nearest ≤48ч.
+- Prefer `content://` URI; `.aac` → ExoPlayer `MimeTypes.AUDIO_AAC`.
+- Matching: `scoreCandidate` по path+name (цифры в path считаются). WhatsApp/random Music — reject.
+- Если файла нет → **не** synthesise beep; `playing=false`. Resolve на play через locator.
 - **C / H:** план (см. §10).
 
 ### Playback controller API
@@ -352,7 +356,7 @@ push main | cursor/**  +  pull_request
 6. FAB: только через `ChromeFab` / `ChromeFabBottomPadding=90.dp`; не прижимать к меню.  
 7. Длительность плеера = media duration / duration звонка; **не** хардкодить 20 с.  
 8. Room call_logs/contacts — не писать «в журнал» из InCall вместо системного CallLog, пока нет явной стратегии кэша.  
-9. Glass — `LiquidGlassPlate` + Haze source/effect + AGSL distort; fill α≈0.36.  
+9. Glass — fill α=0.25 + blur 22dp + AGSL≈56 + progressive halo.  
 10. Dialpad dismiss: порог **30%**; Calls → open; scroll → close; FAB always when closed.  
 11. Не использовать `topLevel!!` в chrome во время exit-анимации — только `lastTopLevel`.  
 12. Date pickers — tennis-модалки из `DatePickerModals.kt`, не Material DatePickerDialog.  

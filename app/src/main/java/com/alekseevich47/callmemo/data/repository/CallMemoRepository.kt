@@ -59,31 +59,13 @@ class CallMemoRepository @Inject constructor(
     }
 
     suspend fun callDetail(id: Long): CallDetail? = withContext(Dispatchers.IO) {
+        // Fast path like the stock dialer: CallLog only. Recording resolve is lazy on play.
         val raw = systemCallLog.getById(id) ?: return@withContext null
-        val recording = raw.recordingUri
-            ?: recordingLocator.findRecording(
-                number = raw.number,
-                startedAtEpochMs = raw.startedAt.toEpochMilli(),
-                durationSeconds = raw.durationSeconds,
-            )
-        val entry = raw.copy(recordingUri = recording)
-        val history = systemCallLog.historyForNumber(entry.number).map { item ->
-            if (item.recordingUri != null) {
-                item
-            } else {
-                item.copy(
-                    recordingUri = recordingLocator.findRecording(
-                        number = item.number,
-                        startedAtEpochMs = item.startedAt.toEpochMilli(),
-                        durationSeconds = item.durationSeconds,
-                    ),
-                )
-            }
-        }
+        val history = systemCallLog.historyForNumber(raw.number)
         CallDetail(
-            entry = entry,
+            entry = raw,
             history = history,
-            transcript = entry.transcriptPreview,
+            transcript = raw.transcriptPreview,
         )
     }
 

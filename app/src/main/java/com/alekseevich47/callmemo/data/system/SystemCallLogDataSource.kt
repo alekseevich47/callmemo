@@ -81,6 +81,14 @@ class SystemCallLogDataSource @Inject constructor(
 
     fun historyForNumber(number: String): List<CallLogEntry> {
         if (!hasPermission()) return emptyList()
+        val digits = PhoneNumberUtils.digitsOnly(number)
+        if (digits.length < 7) {
+            return readCalls().filter { PhoneNumberUtils.sameSubscriber(it.number, number) }
+        }
+        // Prefer a narrow NUMBER LIKE query (stock-dialer speed) before full scan fallback.
+        val tail = digits.takeLast(10)
+        val matched = readCalls(query = tail).filter { PhoneNumberUtils.sameSubscriber(it.number, number) }
+        if (matched.isNotEmpty()) return matched
         return readCalls().filter { PhoneNumberUtils.sameSubscriber(it.number, number) }
     }
 

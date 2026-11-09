@@ -42,6 +42,19 @@ class PlaybackService : Service() {
                 }
                 startActivity(open)
             }
+            ACTION_REFRESH -> {
+                // Lightweight progress tick — update existing notification only.
+                val state = controller.state.value
+                if (!state.visible) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+                ensureChannel()
+                val manager = getSystemService(NotificationManager::class.java)
+                manager?.notify(NOTIFICATION_ID, buildNotification(state))
+                return START_STICKY
+            }
         }
         val state = controller.state.value
         if (!state.visible) {
@@ -135,6 +148,7 @@ class PlaybackService : Service() {
         const val CHANNEL_ID = "callmemo_playback"
         const val NOTIFICATION_ID = 42
         const val ACTION_SYNC = "com.alekseevich47.callmemo.playback.SYNC"
+        const val ACTION_REFRESH = "com.alekseevich47.callmemo.playback.REFRESH"
         const val ACTION_TOGGLE = "com.alekseevich47.callmemo.playback.TOGGLE"
         const val ACTION_STOP = "com.alekseevich47.callmemo.playback.STOP"
         const val ACTION_DISMISS = "com.alekseevich47.callmemo.playback.DISMISS"

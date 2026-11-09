@@ -9,6 +9,7 @@ import androidx.core.content.ContextCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -105,7 +106,7 @@ class CallPlaybackController @Inject constructor(
             runCatching {
                 exo.stop()
                 exo.clearMediaItems()
-                exo.setMediaItem(MediaItem.fromUri(Uri.parse(resolved)))
+                exo.setMediaItem(mediaItemFor(resolved))
                 exo.setPlaybackSpeed(_state.value.speed)
                 exo.prepare()
                 exo.playWhenReady = true
@@ -213,6 +214,25 @@ class CallPlaybackController @Inject constructor(
         )
     }
 
+    /** Tecno PhoneRecord often stores raw ADTS `.aac` — hint mime so ExoPlayer probes correctly. */
+    private fun mediaItemFor(uriString: String): MediaItem {
+        val uri = Uri.parse(uriString)
+        val lower = uriString.lowercase()
+        val mime = when {
+            lower.endsWith(".aac") -> MimeTypes.AUDIO_AAC
+            lower.endsWith(".m4a") || lower.endsWith(".mp4") -> MimeTypes.AUDIO_MP4
+            lower.endsWith(".amr") || lower.endsWith(".awb") -> MimeTypes.AUDIO_AMR_NB
+            lower.endsWith(".mp3") -> MimeTypes.AUDIO_MPEG
+            lower.endsWith(".wav") -> MimeTypes.AUDIO_WAV
+            lower.endsWith(".ogg") || lower.endsWith(".opus") -> MimeTypes.AUDIO_OGG
+            else -> null
+        }
+        return MediaItem.Builder()
+            .setUri(uri)
+            .apply { if (mime != null) setMimeType(mime) }
+            .build()
+    }
+
     private fun ensurePlayer() {
         if (player != null) return
         player = ExoPlayer.Builder(appContext).build().also { exo ->
@@ -283,6 +303,7 @@ class CallPlaybackController @Inject constructor(
     private fun startTicker() {
         ticker?.cancel()
         ticker = scope.launch {
+            var ticks = 0
             while (isActive) {
                 val current = _state.value
                 if (!current.visible) break
@@ -296,7 +317,12 @@ class CallPlaybackController @Inject constructor(
                             playing = exo.isPlaying,
                         )
                     }
-                    if (current.playing) startNotificationService()
+                    // Progress: update notification in-place. Never restart FGS every tick —
+                    // that previously froze the app (startForegroundService ×2/sec).
+                    ticks++
+                    if (current.playing && ticks % 4 == 0) {
+                        refreshNotification()
+                    }
                 }
                 delay(500)
             }
@@ -318,6 +344,14 @@ class CallPlaybackController @Inject constructor(
                 appContext.startService(intent)
             }
         }
+    }
+
+    private fun refreshNotification() {
+        if (!_state.value.visible) return
+        val intent = Intent(appContext, PlaybackService::class.java).apply {
+            action = PlaybackService.ACTION_REFRESH
+        }
+        runCatching { appContext.startService(intent) }
     }
 
     private fun stopNotificationService() {

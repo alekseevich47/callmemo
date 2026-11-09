@@ -169,7 +169,8 @@ fun GlassBottomBar(
     Box(
         modifier = barModifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            // Halo extent is drawn inside LiquidGlassPlate — keep bar inset tight.
+            .padding(horizontal = 10.dp, vertical = 0.dp),
         contentAlignment = Alignment.Center,
     ) {
         // Single tight glass plate wrapping chips only (no full-width underlay).
