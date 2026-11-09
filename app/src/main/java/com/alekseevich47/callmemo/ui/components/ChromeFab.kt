@@ -11,6 +11,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -19,6 +21,9 @@ import com.alekseevich47.callmemo.ui.theme.CallMemoBlue
 /**
  * Shared chrome FAB: circular shadow from the first frame (no square elevation flash),
  * aligned above glass tabs via [ChromeFabBottomPadding] + nav-bar inset.
+ *
+ * Offscreen compositing keeps the solid blue disc from being punched through by
+ * hazeSource list pixels on Tecno/HiOS (bottom-half bleed bug).
  */
 @Composable
 fun ChromeFab(
@@ -35,6 +40,7 @@ fun ChromeFab(
         modifier = modifier
             .navigationBarsPadding()
             .padding(end = 22.dp, bottom = bottomPadding)
+            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
             .shadow(
                 elevation = 10.dp,
                 shape = CircleShape,

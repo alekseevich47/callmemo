@@ -7,6 +7,31 @@
 
 ---
 
+## 0.1.10 — Compositor bleed + стабильная высота меню
+
+| | |
+|--|--|
+| **Когда** | 2026-11-09 09:40 (Asia/Novosibirsk) |
+| **PR** | [#4](https://github.com/alekseevich47/callmemo/pull/4) `cursor/playback-dialpad-player-45fb` |
+| **versionCode** | `10` |
+
+Симптомы на Tecno:
+
+1. Нижняя половина sticky player / dial FAB / белой шторки «просвечивала» список.
+2. Экран делился горизонтальным швом: сверху «забелено», снизу резкий список.
+3. Меню прыгало выше при закрытии клавиатуры (включался layout-halo).
+
+Причина: AGSL `RuntimeShader` RenderEffect на glass frost + переключение halo ломали GPU-композитинг рядом с `hazeSource`.
+
+Исправление:
+
+- Убран AGSL distortion из `LiquidGlassPlate` (остался Haze blur).
+- Fill плашки α≈0.72; `CompositingStrategy.Offscreen` на glass / sticky player / ChromeFab / dialpad sheet.
+- Halo на bottom bar **всегда off** — Y меню как при открытой клавиатуре.
+- `tabsReserve` без halo-pad.
+
+---
+
 ## 0.1.9 — Glass menu: убрана полноширинная зона вокруг табов
 
 | | |

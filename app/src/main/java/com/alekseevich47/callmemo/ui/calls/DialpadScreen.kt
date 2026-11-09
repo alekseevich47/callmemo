@@ -45,6 +45,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -130,6 +132,9 @@ fun DialpadSheet(
                     if (size.height > 0) sheetHeightPx = size.height.toFloat()
                 }
                 .offset { IntOffset(0, offsetY.value.roundToInt()) }
+                // Offscreen layer: prevents hazeSource list from bleeding through
+                // the lower half of the white sheet / call FAB on Tecno GPUs.
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                 .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
                 .background(Color.White)
                 // White reaches the physical bottom; insets only lift the keypad/FAB
@@ -262,6 +267,7 @@ fun DialpadSheet(
                     onClick = { if (number.isNotBlank()) onCall(number) },
                     modifier = Modifier
                         .size(58.dp)
+                        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                         .shadow(
                             elevation = 10.dp,
                             shape = CircleShape,

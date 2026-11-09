@@ -4,7 +4,7 @@
 > Цель: не забывать, **что уже есть**, **где лежит** и **как применяется**.  
 > UI-спека / макеты: [UI.md](UI.md). Макеты: `docs/mockups/`.
 
-**Последнее обновление:** 2026-11-09 09:22 (Asia/Novosibirsk) — v0.1.9 (glass menu: no full-width/halo band over dialpad).  
+**Последнее обновление:** 2026-11-09 09:40 (Asia/Novosibirsk) — v0.1.10 (compositor bleed + stable menu Y).  
 **Changelog:** краткая таблица — [§15](#15-история-обновлений); подробно — [update.md](update.md).
 
 ---
@@ -18,7 +18,7 @@ Android-звонилка (замена штатной) + прослушиван�
 | Package / applicationId | `com.alekseevich47.callmemo` (+ `.debug` в debug) |
 | App name | CallMemo |
 | minSdk / targetSdk / compileSdk | 29 / 35 / 35 |
-| versionName / versionCode | `0.1.9` / `9` |
+| versionName / versionCode | `0.1.10` / `10` |
 | Дистрибуция сейчас | sideload APK из GitHub Actions |
 | Целевое устройство владельца | Tecno (HiOS / Transsion) |
 
@@ -167,17 +167,17 @@ Telecom → `MainActivity.ACTION_SHOW_INCOMING` / `SHOW_IN_CALL` / `OPEN_CALL_DE
 
 ### Liquid glass (переиспользуемый)
 
-- Компонент: `LiquidGlassPlate` (`ui/components/LiquidGlass.kt`), референс CodePen `giladfeder/qErQmXO`.
-- **Haze**: `hazeSource` на контенте (`NavHost`), `hazeEffect` на плашке — реальный backdrop blur текста под меню.
-- **Distortion** (API 33+): AGSL RuntimeShader (turbulence/displacement) на frost-слое; иконки/текст чипов остаются crisp сверху.
-- Плашка: белый fill **α=0.25** + blur ~22dp + AGSL distort strength ≈56.
-- Halo: progressive radial haze (~22dp вокруг плашки) — лёгкое замыливание контента рядом.
+- Компонент: `LiquidGlassPlate` (`ui/components/LiquidGlass.kt`).
+- **Haze**: `hazeSource` на контенте (`NavHost`), `hazeEffect` на плашке — backdrop blur под меню.
+- **Без AGSL RenderEffect** — на Tecno/HiOS distortion ломал композитинг низа экрана (горизонтальный шов + bleed списка сквозь FAB/player/dialpad).
+- Плашка: белый fill **α≈0.72** + blur ~22dp; `CompositingStrategy.Offscreen`.
+- Halo (progressive) для bottom bar **всегда off** — иначе прыгает Y меню при open/close dialpad.
 - Применять ко всем будущим chrome-плашкам с glass.
 
 ### Glass bottom bar
 
-- **Одна** плашка по ширине чипов (`LiquidGlassPlate`) — хост **wrap-content**, **никогда** `fillMaxWidth` (иначе невидимая полноширинная зона вокруг меню перехватывает тачи и визуально «подпирает» dialpad).
-- Progressive **halo выключать**, пока смонтирован dialpad (`halo = !dialpadMounted`) — halo pads ~22dp прямоугольник вверх/вниз от чипов и мешает шторке лечь под меню.
+- **Одна** плашка по ширине чипов (`LiquidGlassPlate`) — хост **wrap-content**, **никогда** `fillMaxWidth`.
+- **Halo всегда false** — стабильная высота/Y (как при открытой клавиатуре на скрине).
 - Активный таб: только цвет иконки/текста (синий), без заливки чипа.
 - Ripple со **скруглёнными** углами (`clip` + `ripple`).
 - Плашка **поверх** списка и **поверх dialpad** (zIndex tabs `4` > dialpad `2`).
@@ -187,8 +187,8 @@ Telecom → `MainActivity.ACTION_SHOW_INCOMING` / `SHOW_IN_CALL` / `OPEN_CALL_DE
 ### Sticky player
 
 - Компактная тёмная плашка; play слева от волны; скорость x1→x1.3→x1.5→x2.
-- **Opaque:** `clip(shape)` + сплошной `CallMemoInk` — список **не** просвечивает.
-- **Высота:** `bottom = tabsReserve + HaloExtent(22dp) + 12dp` (+ `navigationBarsPadding`) — плашка **выше** glass-меню, не пересекается с ним.
+- **Opaque:** `CompositingStrategy.Offscreen` + `clip` + `CallMemoInk` — список не просвечивает (в т.ч. нижняя половина).
+- **Высота:** `bottom = tabsReserve + 12dp` (+ `navigationBarsPadding`).
 - zIndex `1` — над списком, **под** dialpad (`2`); tabs остаются `4`.
 - Волна грузится **в фоне** после старта ExoPlayer (не блокирует playback).
 - Свайп в сторону; порог **≥ 50%**; после dismiss **не** `snapTo(0)` + `ExitTransition.None` — без flash.
@@ -205,11 +205,12 @@ Telecom → `MainActivity.ACTION_SHOW_INCOMING` / `SHOW_IN_CALL` / `OPEN_CALL_DE
 - Хост шторки: `align(BottomCenter)` + `fillMaxWidth` (**не** `fillMaxSize` — иначе тачи над шторкой блокируются). Белая панель **докнута к низу** и рисуется **под** glass-меню.
 - Высота = **intrinsic content** (grabber + номер + 4×52dp + call FAB) + `navigationBars` + `bottomContentPadding` (`tabsReserve+8dp`). **Не** %-of-screen и **без** `Spacer(weight)` — иначе клавиатура «улетает» вверх.
 - Клавиши: фиксированная высота ряда ~52dp / hit 56dp (не weight) — кнопка вызова чуть выше меню.
+- Sheet + call FAB: `CompositingStrategy.Offscreen` (анти-bleed на Tecno).
 - Dismiss ≥ **30%**; уход с Calls → unmount; возврат → open; dismiss работает и mid-enter.
 
 ### FAB
 
-- Компонент: `ChromeFab` — круглая тень сразу, elevation M3 = 0.
+- Компонент: `ChromeFab` — круглая тень сразу, elevation M3 = 0, `CompositingStrategy.Offscreen`.
 - Константа: `ChromeFabBottomPadding = 90.dp` + `navigationBarsPadding`.
 - FAB клавиатуры на Calls **не** прячется скроллом списка (скрывается только dialpad).
 
@@ -290,7 +291,7 @@ state: PlaybackUiState(visible, callId, name, number, uri, playing,
 | Звонки + поиск + фильтр дат | ✅; dialpad open-by-default; scroll hides sheet |
 | Dialpad overlay | ✅; bottom-docked under wrap-width menu (no halo band); call FAB above tabs |
 | Деталка: sticky имя/номер, collapsing avatar, history, inline play | ✅ |
-| Sticky player + notification + proximity | ✅; opaque; above tabs+halo; crash-safe proximity |
+| Sticky player + notification + proximity | ✅; Offscreen opaque; above tabs; crash-safe proximity |
 | Контакты (системные) | ✅; FAB «добавить» — stub (`ChromeFab`) |
 | Календарь месяц + события Room | ✅; дата события — tennis DatePickerModal |
 | Заметки Room | ✅ |
@@ -365,14 +366,15 @@ push main | cursor/**  +  pull_request
 6. FAB: только через `ChromeFab` / `ChromeFabBottomPadding=90.dp`; при видимом player — `playerClearance + 64.dp`.  
 7. Длительность плеера = media duration / duration звонка; **не** хардкодить 20 с.  
 8. Room call_logs/contacts — не писать «в журнал» из InCall вместо системного CallLog, пока нет явной стратегии кэша.  
-9. Glass — fill α=0.25 + blur 22dp + AGSL≈56; progressive halo **off** while dialpad mounted; bar host never `fillMaxWidth`.  
-10. Dialpad: **content-height + bottom-dock**, не `%` экрана / не weight-spacer; dismiss **30%**; Calls → open; scroll → close.  
+9. Glass — fill α≈0.72 + blur 22dp; **no AGSL RenderEffect**; halo **always off** on bottom bar; host never `fillMaxWidth`.  
+10. Dialpad: **content-height + bottom-dock** + Offscreen layer; dismiss **30%**; Calls → open; scroll → close.  
 11. Не использовать `topLevel!!` в chrome во время exit-анимации — только `lastTopLevel`.  
 12. Date pickers — tennis-модалки из `DatePickerModals.kt`, не Material DatePickerDialog.  
 13. Playback: `ContentUris.withAppendedId`; waveform async; no synthetic beep if file missing; ended → replay.  
-14. Sticky player: opaque clip; clearance = tabs + halo + 12dp; swipe dismiss without `snapTo(0)`.  
+14. Sticky player / ChromeFab: `CompositingStrategy.Offscreen` + opaque fill (Tecno bleed).  
 15. Call detail: sticky name/number; avatar scale/alpha collapse on scroll.  
-16. Proximity: no `screenBrightness` + proximity wake-lock; earpiece switch without audio-focus renegotiation.
+16. Proximity: no `screenBrightness` + proximity wake-lock; earpiece switch without audio-focus renegotiation.  
+17. Menu Y must not depend on dialpad open/closed (no layout halo toggle).
 
 ---
 
@@ -410,3 +412,4 @@ push main | cursor/**  +  pull_request
 | 2026-11-09 08:41 | `0.1.7` | Pin dialpad к низу экрана, clearance FAB над меню | [#3](https://github.com/alekseevich47/callmemo/pull/3) |
 | 2026-11-09 09:07 | `0.1.8` | Proximity crash-safe; dialpad content-dock; opaque sticky player above tabs; changelog | [#4](https://github.com/alekseevich47/callmemo/pull/4) |
 | 2026-11-09 09:22 | `0.1.9` | Glass menu: убран full-width host + halo-band над dialpad | [#4](https://github.com/alekseevich47/callmemo/pull/4) |
+| 2026-11-09 09:40 | `0.1.10` | Compositor bleed fix (no AGSL; Offscreen chrome); меню без прыжка Y | [#4](https://github.com/alekseevich47/callmemo/pull/4) |

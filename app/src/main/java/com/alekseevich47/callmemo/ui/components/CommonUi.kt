@@ -52,6 +52,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -164,17 +166,10 @@ fun GlassBottomBar(
     onSelect: (TopLevelDestination) -> Unit,
     hazeState: dev.chrisbanes.haze.HazeState,
     barModifier: Modifier = Modifier,
-    /**
-     * Progressive haze halo around the plate. Prefer **false** while the dialpad
-     * sheet is open: the halo pads a ~22dp rectangle that reads as a full-band
-     * barrier above/below the chips and blocks the sheet from sitting flush under
-     * the menu. Width must stay wrap-content (never fillMaxWidth) for the same reason.
-     */
-    halo: Boolean = true,
 ) {
     val plateShape = RoundedCornerShape(LiquidGlassTokens.DefaultCorner)
-    // Wrap to the glass plate only — a fillMaxWidth host creates an invisible
-    // full-screen-width hit/layout band around the menu (the "zone" over the dialpad).
+    // Wrap to the glass plate only — never fillMaxWidth (invisible full-width band).
+    // Halo stays off: padding would jump the chips up when dialpad closes.
     Box(
         modifier = barModifier.padding(horizontal = 10.dp),
         contentAlignment = Alignment.Center,
@@ -182,7 +177,7 @@ fun GlassBottomBar(
         LiquidGlassPlate(
             hazeState = hazeState,
             shape = plateShape,
-            halo = halo,
+            halo = false,
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp),
@@ -315,7 +310,8 @@ fun StickyPlayerBar(
                         },
                     )
                 }
-                // clip + opaque fill: list content must never bleed through the plate.
+                // Offscreen + clip + opaque fill: blocks hazeSource bleed on Tecno GPUs.
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                 .clip(shape)
                 .background(CallMemoInk)
                 .padding(horizontal = 10.dp, vertical = 8.dp),

@@ -54,7 +54,6 @@ import com.alekseevich47.callmemo.ui.calls.DialpadSheet
 import com.alekseevich47.callmemo.ui.components.ChromeFab
 import com.alekseevich47.callmemo.ui.components.ChromeFabBottomPadding
 import com.alekseevich47.callmemo.ui.components.GlassBottomBar
-import com.alekseevich47.callmemo.ui.components.LiquidGlassTokens
 import com.alekseevich47.callmemo.ui.components.StickyPlayerBar
 import com.alekseevich47.callmemo.ui.contacts.ContactsRoute
 import com.alekseevich47.callmemo.ui.incall.InCallRoute
@@ -187,16 +186,10 @@ fun CallMemoAppRoot(
         !dialpadMounted &&
         !inCallChrome
 
-    // Chip plate height only (no halo band) — halo is disabled while dialpad is open.
+    // Chip plate height only — bottom bar never uses layout halo (stable Y).
     val tabsReserve = if (showTabs) 64.dp else 0.dp
-    val menuHaloPad = if (showTabs && !dialpadMounted) LiquidGlassTokens.HaloExtent else 0.dp
-    // Player bottom edge clears glass tabs (+ halo when it is drawn).
-    val playerClearance = tabsReserve + menuHaloPad + 12.dp
-    val playerReserve = if (showPlayer && !dialpadMounted) {
-        72.dp + menuHaloPad + 12.dp
-    } else {
-        0.dp
-    }
+    val playerClearance = tabsReserve + 12.dp
+    val playerReserve = if (showPlayer && !dialpadMounted) 72.dp + 12.dp else 0.dp
     val chromeBottom = tabsReserve + playerReserve + 12.dp
     // Inside dialpad white fill: lift keypad/call FAB just above the chip plate.
     val dialpadBottomPad = tabsReserve + 8.dp
@@ -453,9 +446,7 @@ fun CallMemoAppRoot(
             )
         }
 
-        // Tabs above dialpad. Wrap-width only (no fillMaxWidth band). Halo off while
-        // dialpad is mounted so the soft rectangle around the plate cannot sit between
-        // the white sheet and the chips.
+        // Tabs above dialpad. Wrap-width, no halo — Y stays fixed open/closed.
         AnimatedVisibility(
             visible = showTabs,
             modifier = Modifier
@@ -470,7 +461,6 @@ fun CallMemoAppRoot(
                 current = lastTopLevel,
                 onSelect = ::selectTab,
                 hazeState = hazeState,
-                halo = !dialpadMounted,
             )
         }
 
