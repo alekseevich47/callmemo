@@ -16,7 +16,6 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -186,11 +185,12 @@ fun CallMemoAppRoot(
         !dialpadMounted &&
         !inCallChrome
 
-    val tabsReserve = if (showTabs) 78.dp else 0.dp
+    // Glass bar + halo (~22) + gap — keep list/FAB clear of tabs.
+    val tabsReserve = if (showTabs) 96.dp else 0.dp
     val playerReserve = if (showPlayer && !dialpadMounted) 64.dp else 0.dp
     val chromeBottom = tabsReserve + playerReserve + 12.dp
-    // Dialpad sits under tabs; sheet height (not lift) clears the call FAB.
-    val dialpadBottomPad = tabsReserve + 12.dp
+    // Call FAB sits just above the menu (nav-bars already applied inside the sheet).
+    val dialpadMenuClearance = if (showTabs) 108.dp else 12.dp
 
     fun openDialpad(seed: String = "") {
         dialpadSeed = seed
@@ -426,26 +426,22 @@ fun CallMemoAppRoot(
             )
         }
 
-        // Sheet owns enter/exit slide; white fills to screen bottom under the tabs.
+        // Sheet owns enter/exit slide; white pinned to screen bottom under the tabs.
         if (dialpadMounted && topLevel == TopLevelDestination.CALLS && !inCallChrome) {
-            Box(
-                modifier = Modifier
+            DialpadSheet(
+                expanded = dialpadOpen,
+                menuClearance = dialpadMenuClearance,
+                initialNumber = dialpadSeed,
+                onDismissFinished = {
+                    dialpadOpen = false
+                    dialpadMounted = false
+                },
+                onCall = { number -> placeCall(null, number) },
+                sheetModifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .zIndex(2f),
-            ) {
-                DialpadSheet(
-                    expanded = dialpadOpen,
-                    // Space above tabs for the call FAB; sheet bg still draws under menu.
-                    bottomContentPadding = PaddingValues(bottom = dialpadBottomPad),
-                    initialNumber = dialpadSeed,
-                    onDismissFinished = {
-                        dialpadOpen = false
-                        dialpadMounted = false
-                    },
-                    onCall = { number -> placeCall(null, number) },
-                )
-            }
+            )
         }
 
         // Tabs above dialpad when sheet is open.

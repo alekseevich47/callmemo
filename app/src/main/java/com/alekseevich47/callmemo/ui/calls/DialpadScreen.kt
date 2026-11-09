@@ -9,11 +9,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -46,27 +45,30 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.alekseevich47.callmemo.ui.theme.CallMemoBlue
 import com.alekseevich47.callmemo.ui.theme.CallMemoInk
 import com.alekseevich47.callmemo.ui.theme.CallMemoMuted
-import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 private const val DismissThreshold = 0.30f
-private val KeyRowHeight = 52.dp
-private val KeyHitSize = 56.dp
+private val KeyRowHeight = 50.dp
+private val KeyHitSize = 54.dp
+private val CallFabSize = 56.dp
 
 @Composable
 fun DialpadSheet(
     expanded: Boolean,
-    bottomContentPadding: PaddingValues,
+    /** Extra space under the call FAB so it sits just above the glass tabs. */
+    menuClearance: Dp,
     initialNumber: String = "",
     onDismissFinished: () -> Unit,
     onCall: (String) -> Unit,
@@ -78,93 +80,93 @@ fun DialpadSheet(
     }
 
     val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
     val offsetY = remember { Animatable(10_000f) }
     val scope = rememberCoroutineScope()
     var dismissing by remember { mutableStateOf(false) }
     var entered by remember { mutableStateOf(false) }
 
-    BoxWithConstraints(
-        modifier = sheetModifier.fillMaxWidth(),
-    ) {
-        // Tall enough that white fills from bottom under the tabs (no call-list peek).
-        val minSheetPx = with(density) { 480.dp.toPx() }
-        val parentH = constraints.maxHeight
-            .takeIf { it > 0 && it < Int.MAX_VALUE / 4 }
-            ?.toFloat()
-            ?: with(density) { 720.dp.toPx() }
-        val maxAllowedPx = parentH * 0.78f
-        val targetPx = parentH * 0.64f
-        val sheetHeightPx = max(minSheetPx, targetPx).coerceAtMost(maxAllowedPx)
-        val sheetHeight = with(density) { sheetHeightPx.toDp() }
+    // Pin height to screen metrics — don't rely on parent constraints (wrap/loose).
+    val screenH = configuration.screenHeightDp.dp
+    val sheetHeight = maxOf(520.dp, screenH * 0.66f).coerceAtMost(screenH * 0.80f)
+    val sheetHeightPx = with(density) { sheetHeight.toPx() }
 
-        LaunchedEffect(sheetHeightPx) {
-            if (dismissing || entered) return@LaunchedEffect
-            offsetY.snapTo(sheetHeightPx)
-            offsetY.animateTo(
-                0f,
-                spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = Spring.DampingRatioNoBouncy),
-            )
-            entered = true
-        }
+    LaunchedEffect(sheetHeightPx) {
+        if (dismissing || entered) return@LaunchedEffect
+        offsetY.snapTo(sheetHeightPx)
+        offsetY.animateTo(
+            0f,
+            spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = Spring.DampingRatioNoBouncy),
+        )
+        entered = true
+    }
 
-        // Collapse on external signal even mid-enter (tab return + scroll race).
-        LaunchedEffect(expanded) {
-            if (expanded || dismissing) return@LaunchedEffect
-            dismissing = true
+    LaunchedEffect(expanded) {
+        if (expanded || dismissing) return@LaunchedEffect
+        dismissing = true
+        offsetY.animateTo(sheetHeightPx, tween(durationMillis = 220))
+        onDismissFinished()
+    }
+
+    fun dismissSheet() {
+        if (dismissing) return
+        dismissing = true
+        scope.launch {
             offsetY.animateTo(sheetHeightPx, tween(durationMillis = 220))
             onDismissFinished()
         }
+    }
 
-        fun dismissSheet() {
-            if (dismissing) return
-            dismissing = true
-            scope.launch {
-                offsetY.animateTo(sheetHeightPx, tween(durationMillis = 220))
-                onDismissFinished()
-            }
-        }
+    // White sheet is flush with the physical bottom; controls are packed above the menu.
+    Box(
+        modifier = sheetModifier
+            .fillMaxWidth()
+            .height(sheetHeight)
+            .offset { IntOffset(0, offsetY.value.roundToInt()) }
+            .pointerInput(sheetHeightPx, dismissing) {
+                if (dismissing) return@pointerInput
+                detectVerticalDragGestures(
+                    onDragEnd = {
+                        scope.launch {
+                            val hidden = offsetY.value / sheetHeightPx
+                            if (hidden >= DismissThreshold) {
+                                dismissing = true
+                                offsetY.animateTo(sheetHeightPx, tween(durationMillis = 200))
+                                onDismissFinished()
+                            } else {
+                                offsetY.animateTo(
+                                    0f,
+                                    spring(
+                                        dampingRatio = Spring.DampingRatioNoBouncy,
+                                        stiffness = Spring.StiffnessMedium,
+                                    ),
+                                )
+                            }
+                        }
+                    },
+                    onVerticalDrag = { change, amount ->
+                        change.consume()
+                        scope.launch {
+                            offsetY.snapTo((offsetY.value + amount).coerceAtLeast(0f))
+                        }
+                    },
+                )
+            },
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                .background(Color.White),
+        )
 
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(sheetHeight)
-                .align(Alignment.BottomCenter)
-                .offset { IntOffset(0, offsetY.value.roundToInt()) }
+                .fillMaxSize()
                 .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
-                .background(Color.White)
-                // White sheet reaches the physical bottom; insets only shift controls.
                 .navigationBarsPadding()
-                .padding(bottomContentPadding)
-                .padding(horizontal = 12.dp)
-                .pointerInput(sheetHeightPx, dismissing) {
-                    if (dismissing) return@pointerInput
-                    detectVerticalDragGestures(
-                        onDragEnd = {
-                            scope.launch {
-                                val hidden = offsetY.value / sheetHeightPx
-                                if (hidden >= DismissThreshold) {
-                                    dismissing = true
-                                    offsetY.animateTo(sheetHeightPx, tween(durationMillis = 200))
-                                    onDismissFinished()
-                                } else {
-                                    offsetY.animateTo(
-                                        0f,
-                                        spring(
-                                            dampingRatio = Spring.DampingRatioNoBouncy,
-                                            stiffness = Spring.StiffnessMedium,
-                                        ),
-                                    )
-                                }
-                            }
-                        },
-                        onVerticalDrag = { change, amount ->
-                            change.consume()
-                            scope.launch {
-                                offsetY.snapTo((offsetY.value + amount).coerceAtLeast(0f))
-                            }
-                        },
-                    )
-                },
+                .padding(bottom = menuClearance)
+                .padding(horizontal = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Box(
@@ -187,7 +189,7 @@ fun DialpadSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 4.dp)
-                    .height(44.dp),
+                    .height(42.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -224,7 +226,6 @@ fun DialpadSheet(
                 listOf("7", "8", "9"),
                 listOf("*", "0", "#"),
             )
-            // Fixed row heights (not weight) so the call FAB sits above the glass tabs.
             keys.forEach { row ->
                 Row(
                     modifier = Modifier
@@ -251,16 +252,17 @@ fun DialpadSheet(
                     }
                 }
             }
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 4.dp, bottom = 4.dp),
+                    .padding(top = 6.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 FloatingActionButton(
                     onClick = { if (number.isNotBlank()) onCall(number) },
                     modifier = Modifier
-                        .size(58.dp)
+                        .size(CallFabSize)
                         .shadow(
                             elevation = 10.dp,
                             shape = CircleShape,
@@ -281,6 +283,8 @@ fun DialpadSheet(
                     Icon(Icons.Outlined.Call, contentDescription = "Позвонить")
                 }
             }
+
+            // Remaining white sits under the keypad/FAB and behind the glass menu.
             Spacer(Modifier.weight(1f, fill = true))
         }
     }
