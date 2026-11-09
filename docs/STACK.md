@@ -4,7 +4,7 @@
 > Цель: не забывать, **что уже есть**, **где лежит** и **как применяется**.  
 > UI-спека / макеты: [UI.md](UI.md). Макеты: `docs/mockups/`.
 
-**Последнее обновление:** 2026-11-09 09:40 (Asia/Novosibirsk) — v0.1.10 (compositor bleed + stable menu Y).  
+**Последнее обновление:** 2026-11-09 09:55 (Asia/Novosibirsk) — v0.1.11 (in-call Telecom: answer, name, timer, proximity, hold/BT).  
 **Changelog:** краткая таблица — [§15](#15-история-обновлений); подробно — [update.md](update.md).
 
 ---
@@ -18,7 +18,7 @@ Android-звонилка (замена штатной) + прослушиван�
 | Package / applicationId | `com.alekseevich47.callmemo` (+ `.debug` в debug) |
 | App name | CallMemo |
 | minSdk / targetSdk / compileSdk | 29 / 35 / 35 |
-| versionName / versionCode | `0.1.10` / `10` |
+| versionName / versionCode | `0.1.11` / `11` |
 | Дистрибуция сейчас | sideload APK из GitHub Actions |
 | Целевое устройство владельца | Tecno (HiOS / Transsion) |
 
@@ -66,8 +66,9 @@ data/
   SeedData.kt                  # НЕ используется (legacy mock)
 
 telecom/
-  DialerRoleHelper.kt          # ROLE_DIALER, PhoneAccount, placeCall
-  TelecomServices.kt           # InCallService, ConnectionService, CallSessionTracker
+  DialerRoleHelper.kt          # ROLE_DIALER, PhoneAccount, placeCall (SIM account)
+  TelecomServices.kt           # InCallService (@AndroidEntryPoint), ConnectionService stub
+  CallSessionController.kt     # StateFlow session: answer/hold/mute/audio + contact name
 
 player/
   CallPlaybackController.kt    # singleton ExoPlayer + state
@@ -121,7 +122,7 @@ util/ PhoneNumberUtils.kt, TimeFormat.kt
 │       ├─ PlaybackService (notification)                      │
 │       └─ ProximityPlaybackEffect (из UI при playing)         │
 │                                                              │
-│  DialerRoleHelper / CallSessionTracker ← Telecom             │
+│  DialerRoleHelper / CallSessionController ← InCallService    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -276,11 +277,18 @@ state: PlaybackUiState(visible, callId, name, number, uri, playing,
                        positionMs, durationMs, speed, amplitudes, earpiece)
 ```
 
-### Telecom
+### Telecom / In-call
 
 - `DialerRoleHelper.isDefaultDialer()` / `createRequestIntent()` / `registerPhoneAccount()` / `placeCall()`.
-- `CallMemoInCallService` поднимает UI; `CallSessionTracker` для answer/reject/disconnect.
-- In-call кнопки mute/speaker/hold… пока **локальный UI-state**, не полная привязка к Telecom API.
+- `placeCall` явно выбирает **SIM PhoneAccount** (не stub CallMemo ConnectionService).
+- `CallMemoInCallService` (`@AndroidEntryPoint`) → `CallSessionController` (singleton StateFlow).
+- `CallSessionController`: `answer` / `reject` / `disconnect` / `setMuted` / `hold|unhold` / audio route (API 29–33: `setAudioRoute`/`requestBluetoothAudio`; API 34+: `CallEndpoint`) / DTMF.
+- Имя абонента: `Call.Details.callerDisplayName` + `SystemContactsDataSource.lookupDisplayName` (PhoneLookup).
+- Таймер: `connectedAtElapsedMs` только после `Call.STATE_ACTIVE` (не при DIALING).
+- Proximity на in-call: тот же `ProximityPlaybackEffect` (wake-lock), пока маршрут earpiece и не speaker/BT.
+- Hold UI: под статусом «⏸ На удержании»; кнопка светлая, иконка синяя.
+- Bluetooth: bottom sheet выбора endpoint/устройства.
+- Stub `CallMemoConnectionService` **не** делает outgoing `setActive()` сразу.
 
 ---
 
@@ -296,14 +304,14 @@ state: PlaybackUiState(visible, callId, name, number, uri, playing,
 | Календарь месяц + события Room | ✅; дата события — tennis DatePickerModal |
 | Заметки Room | ✅ |
 | Настройки: dialer role, API key, флаги STT/source | ✅ persist; crash fix при уходе с табов |
-| In-call / Incoming UI | ✅ визуал; Stream — placeholder |
-| Тестовый входящий из настроек | ✅ только UI-навигация |
+| In-call / Incoming UI | ✅ Telecom-привязка (answer/hold/mute/speaker/BT/proximity/timer/name); Stream — placeholder |
+| Тестовый входящий из настроек | ✅ UI-демо без Telecom; live-call идёт через InCallService |
 
 ---
 
 ## 9. Разрешения и компоненты (Manifest)
 
-**Permissions:** INTERNET, READ/WRITE_CALL_LOG, READ_CONTACTS, CALL_PHONE, READ_PHONE_STATE, MANAGE_OWN_CALLS, RECORD_AUDIO, FOREGROUND_SERVICE (+ MICROPHONE, MEDIA_PLAYBACK), POST_NOTIFICATIONS, READ/WRITE_CALENDAR, READ_MEDIA_AUDIO / READ_EXTERNAL_STORAGE(≤32), WAKE_LOCK, MODIFY_AUDIO_SETTINGS.
+**Permissions:** INTERNET, READ/WRITE_CALL_LOG, READ_CONTACTS, CALL_PHONE, READ_PHONE_STATE, MANAGE_OWN_CALLS, RECORD_AUDIO, FOREGROUND_SERVICE (+ MICROPHONE, MEDIA_PLAYBACK), POST_NOTIFICATIONS, READ/WRITE_CALENDAR, READ_MEDIA_AUDIO / READ_EXTERNAL_STORAGE(≤32), WAKE_LOCK, MODIFY_AUDIO_SETTINGS, BLUETOOTH(≤30), BLUETOOTH_CONNECT.
 
 **Components:**
 
@@ -375,6 +383,9 @@ push main | cursor/**  +  pull_request
 15. Call detail: sticky name/number; avatar scale/alpha collapse on scroll.  
 16. Proximity: no `screenBrightness` + proximity wake-lock; earpiece switch without audio-focus renegotiation.  
 17. Menu Y must not depend on dialpad open/closed (no layout halo toggle).
+18. Incoming Accept **must** call `Call.answer()` (via `CallSessionController`) — иначе рингтон не останавливается.  
+19. Outgoing `placeCall` — только SIM PhoneAccount; stub ConnectionService не `setActive()` на dialing.  
+20. In-call timer только после `STATE_ACTIVE`; кнопки mute/hold/speaker/BT — через Telecom, не локальный fake-state (кроме Settings demo).
 
 ---
 
@@ -413,3 +424,4 @@ push main | cursor/**  +  pull_request
 | 2026-11-09 09:07 | `0.1.8` | Proximity crash-safe; dialpad content-dock; opaque sticky player above tabs; changelog | [#4](https://github.com/alekseevich47/callmemo/pull/4) |
 | 2026-11-09 09:22 | `0.1.9` | Glass menu: убран full-width host + halo-band над dialpad | [#4](https://github.com/alekseevich47/callmemo/pull/4) |
 | 2026-11-09 09:40 | `0.1.10` | Compositor bleed fix (no AGSL; Offscreen chrome); меню без прыжка Y | [#4](https://github.com/alekseevich47/callmemo/pull/4) |
+| 2026-11-09 09:55 | `0.1.11` | In-call: answer, имя контакта, таймер после ACTIVE, proximity, hold/BT/mute | `cursor/call-controls-fix-18e8` |
