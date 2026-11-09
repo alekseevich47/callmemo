@@ -105,6 +105,9 @@ fun CallMemoAppRoot(
             add(Manifest.permission.READ_CONTACTS)
             add(Manifest.permission.CALL_PHONE)
             add(Manifest.permission.READ_PHONE_STATE)
+            if (Build.VERSION.SDK_INT >= 31) {
+                add(Manifest.permission.BLUETOOTH_CONNECT)
+            }
             if (Build.VERSION.SDK_INT >= 33) {
                 add(Manifest.permission.POST_NOTIFICATIONS)
                 add(Manifest.permission.READ_MEDIA_AUDIO)
@@ -387,6 +390,7 @@ fun CallMemoAppRoot(
                     name = name,
                     number = number,
                     onAccept = {
+                        // Telecom answer is invoked inside IncomingRoute; navigate to in-call UI.
                         navController.popBackStack()
                         navController.navigate(
                             Routes.inCall(name, number, CallDirection.INCOMING.name),

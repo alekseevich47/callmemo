@@ -7,6 +7,35 @@
 
 ---
 
+## 0.1.11 — In-call Telecom: accept, имя, таймер, proximity, hold/BT
+
+| | |
+|--|--|
+| **Когда** | 2026-11-09 09:55 (Asia/Novosibirsk) |
+| **PR** | [#5](https://github.com/alekseevich47/callmemo/pull/5) `cursor/call-controls-fix-18e8` |
+| **versionCode** | `11` |
+
+Пользовательские баги во время звонка:
+
+1. **Accept не останавливал рингтон** — UI только навигировал, без `Call.answer()`.
+2. **Имя = номер** — InCallService клал номер в `EXTRA_NAME` без PhoneLookup.
+3. **Таймер с первой секунды набора** — Compose-таймер + stub ConnectionService `setActive()` сразу.
+4. **Экран не гас у уха** — proximity был только у плеера записей.
+5. **Hold / Bluetooth / mute / speaker** — локальный UI-state без Telecom.
+
+Исправление:
+
+- `CallSessionController` (Hilt singleton) + `@AndroidEntryPoint` `CallMemoInCallService`.
+- Accept/Decline → `answer()` / `reject()`; mute/hold/speaker/BT через Telecom API.
+- Имя: `callerDisplayName` + `SystemContactsDataSource.lookupDisplayName` (PhoneLookup + digit fallback).
+- Таймер от `connectedAtElapsedMs` только после `STATE_ACTIVE`.
+- `placeCall` выбирает SIM PhoneAccount; stub ConnectionService остаётся в `DIALING`.
+- In-call proximity через `ProximityPlaybackEffect` (earpiece only).
+- Hold: «На удержании» + светлая кнопка / синяя иконка; Bluetooth — sheet выбора устройства.
+- Permissions: `BLUETOOTH_CONNECT` (+ legacy `BLUETOOTH` ≤30).
+
+---
+
 ## 0.1.10 — Compositor bleed + стабильная высота меню
 
 | | |
