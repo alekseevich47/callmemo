@@ -54,6 +54,7 @@ import com.alekseevich47.callmemo.ui.calls.DialpadSheet
 import com.alekseevich47.callmemo.ui.components.ChromeFab
 import com.alekseevich47.callmemo.ui.components.ChromeFabBottomPadding
 import com.alekseevich47.callmemo.ui.components.GlassBottomBar
+import com.alekseevich47.callmemo.ui.components.LiquidGlassTokens
 import com.alekseevich47.callmemo.ui.components.StickyPlayerBar
 import com.alekseevich47.callmemo.ui.contacts.ContactsRoute
 import com.alekseevich47.callmemo.ui.incall.InCallRoute
@@ -187,10 +188,17 @@ fun CallMemoAppRoot(
         !inCallChrome
 
     val tabsReserve = if (showTabs) 78.dp else 0.dp
-    val playerReserve = if (showPlayer && !dialpadMounted) 64.dp else 0.dp
+    // Player bottom edge clears glass tabs + progressive halo.
+    val playerClearance = tabsReserve + LiquidGlassTokens.HaloExtent + 12.dp
+    // Extra list inset: player body + halo gap above the tab reserve.
+    val playerReserve = if (showPlayer && !dialpadMounted) {
+        72.dp + LiquidGlassTokens.HaloExtent + 12.dp
+    } else {
+        0.dp
+    }
     val chromeBottom = tabsReserve + playerReserve + 12.dp
-    // Dialpad sits under tabs; sheet height (not lift) clears the call FAB.
-    val dialpadBottomPad = tabsReserve + 12.dp
+    // Inside dialpad white fill: lift keypad/FAB just above the glass menu.
+    val dialpadBottomPad = tabsReserve + 8.dp
 
     fun openDialpad(seed: String = "") {
         dialpadSeed = seed
@@ -395,14 +403,14 @@ fun CallMemoAppRoot(
             }
         }
 
-        // Player under dialpad sheet.
+        // Player above list, under dialpad; vertically cleared above glass tabs + halo.
         AnimatedVisibility(
             visible = showPlayer,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .zIndex(1f)
                 .navigationBarsPadding()
-                .padding(bottom = if (showTabs) 82.dp else 8.dp),
+                .padding(bottom = if (showTabs) playerClearance else 8.dp),
             enter = fadeIn(tween(TabAnimMs)) + slideInVertically(tween(TabAnimMs)) { it / 2 },
             // Swipe already moved the bar off-screen — skip exit animation to avoid flash.
             exit = if (playerSwipeDismissing) {
@@ -426,26 +434,22 @@ fun CallMemoAppRoot(
             )
         }
 
-        // Sheet owns enter/exit slide; white fills to screen bottom under the tabs.
+        // Bottom-docked wrap-content sheet; white fill runs under the glass tabs.
         if (dialpadMounted && topLevel == TopLevelDestination.CALLS && !inCallChrome) {
-            Box(
-                modifier = Modifier
+            DialpadSheet(
+                expanded = dialpadOpen,
+                bottomContentPadding = PaddingValues(bottom = dialpadBottomPad),
+                initialNumber = dialpadSeed,
+                onDismissFinished = {
+                    dialpadOpen = false
+                    dialpadMounted = false
+                },
+                onCall = { number -> placeCall(null, number) },
+                sheetModifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .zIndex(2f),
-            ) {
-                DialpadSheet(
-                    expanded = dialpadOpen,
-                    // Space above tabs for the call FAB; sheet bg still draws under menu.
-                    bottomContentPadding = PaddingValues(bottom = dialpadBottomPad),
-                    initialNumber = dialpadSeed,
-                    onDismissFinished = {
-                        dialpadOpen = false
-                        dialpadMounted = false
-                    },
-                    onCall = { number -> placeCall(null, number) },
-                )
-            }
+            )
         }
 
         // Tabs above dialpad when sheet is open.
@@ -478,7 +482,11 @@ fun CallMemoAppRoot(
                 onClick = { openDialpad() },
                 icon = Icons.Outlined.Dialpad,
                 contentDescription = "Набор номера",
-                bottomPadding = if (showPlayer) ChromeFabBottomPadding + 58.dp else ChromeFabBottomPadding,
+                bottomPadding = when {
+                    showPlayer && showTabs -> playerClearance + 64.dp
+                    showPlayer -> 72.dp
+                    else -> ChromeFabBottomPadding
+                },
             )
         }
     }

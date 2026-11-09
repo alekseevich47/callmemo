@@ -9,7 +9,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -35,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -46,6 +46,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -55,7 +56,6 @@ import androidx.compose.ui.unit.sp
 import com.alekseevich47.callmemo.ui.theme.CallMemoBlue
 import com.alekseevich47.callmemo.ui.theme.CallMemoInk
 import com.alekseevich47.callmemo.ui.theme.CallMemoMuted
-import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
@@ -63,6 +63,14 @@ private const val DismissThreshold = 0.30f
 private val KeyRowHeight = 52.dp
 private val KeyHitSize = 56.dp
 
+/**
+ * Bottom-docked dialpad sheet.
+ *
+ * Host must be [Alignment.BottomCenter] + [Modifier.fillMaxWidth] (not fillMaxSize —
+ * a full-screen host would steal taps above the white panel). White fill includes
+ * [bottomContentPadding] so it draws under the glass tabs; keypad/call FAB stay
+ * content-sized above that pad (no %-height, no weight spacer).
+ */
 @Composable
 fun DialpadSheet(
     expanded: Boolean,
@@ -82,21 +90,12 @@ fun DialpadSheet(
     val scope = rememberCoroutineScope()
     var dismissing by remember { mutableStateOf(false) }
     var entered by remember { mutableStateOf(false) }
+    var sheetHeightPx by remember { mutableFloatStateOf(with(density) { 420.dp.toPx() }) }
 
-    BoxWithConstraints(
+    // Wrap-content host: height = keypad + menu clearance. Parent aligns to bottom.
+    Box(
         modifier = sheetModifier.fillMaxWidth(),
     ) {
-        // Tall enough that white fills from bottom under the tabs (no call-list peek).
-        val minSheetPx = with(density) { 480.dp.toPx() }
-        val parentH = constraints.maxHeight
-            .takeIf { it > 0 && it < Int.MAX_VALUE / 4 }
-            ?.toFloat()
-            ?: with(density) { 720.dp.toPx() }
-        val maxAllowedPx = parentH * 0.78f
-        val targetPx = parentH * 0.64f
-        val sheetHeightPx = max(minSheetPx, targetPx).coerceAtMost(maxAllowedPx)
-        val sheetHeight = with(density) { sheetHeightPx.toDp() }
-
         LaunchedEffect(sheetHeightPx) {
             if (dismissing || entered) return@LaunchedEffect
             offsetY.snapTo(sheetHeightPx)
@@ -127,12 +126,14 @@ fun DialpadSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(sheetHeight)
-                .align(Alignment.BottomCenter)
+                .onSizeChanged { size ->
+                    if (size.height > 0) sheetHeightPx = size.height.toFloat()
+                }
                 .offset { IntOffset(0, offsetY.value.roundToInt()) }
                 .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
                 .background(Color.White)
-                // White sheet reaches the physical bottom; insets only shift controls.
+                // White reaches the physical bottom; insets only lift the keypad/FAB
+                // so the call button sits just above the glass menu.
                 .navigationBarsPadding()
                 .padding(bottomContentPadding)
                 .padding(horizontal = 12.dp)
@@ -141,7 +142,7 @@ fun DialpadSheet(
                     detectVerticalDragGestures(
                         onDragEnd = {
                             scope.launch {
-                                val hidden = offsetY.value / sheetHeightPx
+                                val hidden = offsetY.value / sheetHeightPx.coerceAtLeast(1f)
                                 if (hidden >= DismissThreshold) {
                                     dismissing = true
                                     offsetY.animateTo(sheetHeightPx, tween(durationMillis = 200))
@@ -217,14 +218,14 @@ fun DialpadSheet(
                 }
             }
 
-            Spacer(Modifier.height(2.dp))
+            Spacer(modifier = Modifier.height(2.dp))
             val keys = listOf(
                 listOf("1", "2", "3"),
                 listOf("4", "5", "6"),
                 listOf("7", "8", "9"),
                 listOf("*", "0", "#"),
             )
-            // Fixed row heights (not weight) so the call FAB sits above the glass tabs.
+            // Fixed row heights (not weight) — call FAB stays just above the menu pad.
             keys.forEach { row ->
                 Row(
                     modifier = Modifier
@@ -254,7 +255,7 @@ fun DialpadSheet(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 4.dp, bottom = 4.dp),
+                    .padding(top = 4.dp, bottom = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 FloatingActionButton(
@@ -281,7 +282,6 @@ fun DialpadSheet(
                     Icon(Icons.Outlined.Call, contentDescription = "Позвонить")
                 }
             }
-            Spacer(Modifier.weight(1f, fill = true))
         }
     }
 }

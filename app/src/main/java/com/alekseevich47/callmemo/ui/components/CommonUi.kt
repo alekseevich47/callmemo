@@ -251,7 +251,7 @@ fun InfoCircleButton(
     }
 }
 
-/** Compact sticky player (~half previous height). */
+/** Compact sticky player — fully opaque, sits above glass tabs / under dialpad. */
 @Composable
 fun StickyPlayerBar(
     state: PlaybackUiState,
@@ -306,7 +306,9 @@ fun StickyPlayerBar(
                         },
                     )
                 }
-                .background(CallMemoInk, shape)
+                // clip + opaque fill: list content must never bleed through the plate.
+                .clip(shape)
+                .background(CallMemoInk)
                 .padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {

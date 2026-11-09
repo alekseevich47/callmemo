@@ -4,7 +4,7 @@
 > Цель: не забывать, **что уже есть**, **где лежит** и **как применяется**.  
 > UI-спека / макеты: [UI.md](UI.md). Макеты: `docs/mockups/`.
 
-**Последнее обновление:** 2026-11-08 (fix startup crash: no negative padding in glass halo).
+**Последнее обновление:** 2026-11-09 (proximity crash-safe; dialpad bottom-dock; opaque sticky player above tabs).
 
 ---
 
@@ -185,6 +185,9 @@ Telecom → `MainActivity.ACTION_SHOW_INCOMING` / `SHOW_IN_CALL` / `OPEN_CALL_DE
 ### Sticky player
 
 - Компактная тёмная плашка; play слева от волны; скорость x1→x1.3→x1.5→x2.
+- **Opaque:** `clip(shape)` + сплошной `CallMemoInk` — список **не** просвечивает.
+- **Высота:** `bottom = tabsReserve + HaloExtent(22dp) + 12dp` (+ `navigationBarsPadding`) — плашка **выше** glass-меню, не пересекается с ним.
+- zIndex `1` — над списком, **под** dialpad (`2`); tabs остаются `4`.
 - Волна грузится **в фоне** после старта ExoPlayer (не блокирует playback).
 - Свайп в сторону; порог **≥ 50%**; после dismiss **не** `snapTo(0)` + `ExitTransition.None` — без flash.
 - **Показывать** sticky только **вне** деталки того звонка, который сейчас играет.
@@ -197,8 +200,9 @@ Telecom → `MainActivity.ACTION_SHOW_INCOMING` / `SHOW_IN_CALL` / `OPEN_CALL_DE
 ### Dialpad sheet
 
 - На разделе **Звонки** открывается сразу; **любой успешный** скролл списка (не overscroll) — плавно закрывает; FAB **всегда** видна в закрытом состоянии.
-- Белая шторка до **низа экрана** (под меню); pad только для контента (tabs + nav bars).
-- Клавиши: фиксированная высота ряда ~52dp / hit 56dp (не weight) — FAB вызова выше меню.
+- Хост шторки: `align(BottomCenter)` + `fillMaxWidth` (**не** `fillMaxSize` — иначе тачи над шторкой блокируются). Белая панель **докнута к низу** и рисуется **под** glass-меню.
+- Высота = **intrinsic content** (grabber + номер + 4×52dp + call FAB) + `navigationBars` + `bottomContentPadding` (`tabsReserve+8dp`). **Не** %-of-screen и **без** `Spacer(weight)` — иначе клавиатура «улетает» вверх.
+- Клавиши: фиксированная высота ряда ~52dp / hit 56dp (не weight) — кнопка вызова чуть выше меню.
 - Dismiss ≥ **30%**; уход с Calls → unmount; возврат → open; dismiss работает и mid-enter.
 
 ### FAB
@@ -218,8 +222,11 @@ Telecom → `MainActivity.ACTION_SHOW_INCOMING` / `SHOW_IN_CALL` / `OPEN_CALL_DE
 
 ### Proximity
 
-- Пока идёт воспроизведение (`playing`): поднесение к уху → `PROXIMITY_SCREEN_OFF_WAKE_LOCK` + маршрут **earpiece** (`USAGE_VOICE_COMMUNICATION`).
-- Отвели — обычный media-маршрут и яркость.
+- Пока идёт воспроизведение (`playing`): поднесение к уху → `PROXIMITY_SCREEN_OFF_WAKE_LOCK` + маршрут **earpiece**.
+- Sensor callbacks → **main looper**; wake-lock acquire/release в `runCatching`; **без** ручного `screenBrightness` (на Tecno/HiOS связка brightness + proximity lock крашит процесс).
+- Смена маршрута: `AudioManager.MODE_IN_COMMUNICATION` + `setCommunicationDevice(EARPIECE)` (API 31+); `ExoPlayer.setAudioAttributes(..., handleAudioFocus=false)` при switch — focus renegotiation mid-playback крашит AudioTrack.
+- Manifest: `MODIFY_AUDIO_SETTINGS` + `WAKE_LOCK`.
+- Отвели — `MODE_NORMAL` + `clearCommunicationDevice`.
 
 ### Уведомление воспроизведения
 
@@ -279,9 +286,9 @@ state: PlaybackUiState(visible, callId, name, number, uri, playing,
 | Экран | Статус |
 |-------|--------|
 | Звонки + поиск + фильтр дат | ✅; dialpad open-by-default; scroll hides sheet |
-| Dialpad overlay | ✅; swipe ≥30%; taller sheet (~62%/460dp); FAB when closed |
+| Dialpad overlay | ✅; bottom-docked; content-height; call FAB above tabs; FAB when closed |
 | Деталка: sticky имя/номер, collapsing avatar, history, inline play | ✅ |
-| Sticky player + notification + proximity | ✅; replay after end; no beep fallback |
+| Sticky player + notification + proximity | ✅; opaque; above tabs+halo; crash-safe proximity |
 | Контакты (системные) | ✅; FAB «добавить» — stub (`ChromeFab`) |
 | Календарь месяц + события Room | ✅; дата события — tennis DatePickerModal |
 | Заметки Room | ✅ |
@@ -293,7 +300,7 @@ state: PlaybackUiState(visible, callId, name, number, uri, playing,
 
 ## 9. Разрешения и компоненты (Manifest)
 
-**Permissions:** INTERNET, READ/WRITE_CALL_LOG, READ_CONTACTS, CALL_PHONE, READ_PHONE_STATE, MANAGE_OWN_CALLS, RECORD_AUDIO, FOREGROUND_SERVICE (+ MICROPHONE, MEDIA_PLAYBACK), POST_NOTIFICATIONS, READ/WRITE_CALENDAR, READ_MEDIA_AUDIO / READ_EXTERNAL_STORAGE(≤32), WAKE_LOCK.
+**Permissions:** INTERNET, READ/WRITE_CALL_LOG, READ_CONTACTS, CALL_PHONE, READ_PHONE_STATE, MANAGE_OWN_CALLS, RECORD_AUDIO, FOREGROUND_SERVICE (+ MICROPHONE, MEDIA_PLAYBACK), POST_NOTIFICATIONS, READ/WRITE_CALENDAR, READ_MEDIA_AUDIO / READ_EXTERNAL_STORAGE(≤32), WAKE_LOCK, MODIFY_AUDIO_SETTINGS.
 
 **Components:**
 
@@ -306,7 +313,7 @@ state: PlaybackUiState(visible, callId, name, number, uri, playing,
 
 ## 10. Политика записи (продуктовая, A → C → H)
 
-Согласовано в чате; **в коде сейчас только поиск A + tone fallback**.
+Согласовано в чате; **в коде сейчас только поиск A** (без synthetic tone fallback).
 
 1. **A — OEM/штатная запись** — пресеты папок + MediaStore + (план) SAF tree URI.  
 2. **C — привилегированный захват** — C1 встроенный Wireless Debugging/ADB (основной план), C2 Shizuku, C3 root.  
@@ -353,16 +360,17 @@ push main | cursor/**  +  pull_request
 3. Не навигировать на `Routes.DIALPAD` — использовать overlay state.  
 4. Sticky player ↔ деталка: скрывать sticky только для **того же** `callId`.  
 5. Dialpad поверх player без `hide()` плеера.  
-6. FAB: только через `ChromeFab` / `ChromeFabBottomPadding=90.dp`; не прижимать к меню.  
+6. FAB: только через `ChromeFab` / `ChromeFabBottomPadding=90.dp`; при видимом player — `playerClearance + 64.dp`.  
 7. Длительность плеера = media duration / duration звонка; **не** хардкодить 20 с.  
 8. Room call_logs/contacts — не писать «в журнал» из InCall вместо системного CallLog, пока нет явной стратегии кэша.  
 9. Glass — fill α=0.25 + blur 22dp + AGSL≈56 + progressive halo.  
-10. Dialpad dismiss: порог **30%**; Calls → open; scroll → close; FAB always when closed.  
+10. Dialpad: **content-height + bottom-dock**, не `%` экрана / не weight-spacer; dismiss **30%**; Calls → open; scroll → close.  
 11. Не использовать `topLevel!!` в chrome во время exit-анимации — только `lastTopLevel`.  
 12. Date pickers — tennis-модалки из `DatePickerModals.kt`, не Material DatePickerDialog.  
 13. Playback: `ContentUris.withAppendedId`; waveform async; no synthetic beep if file missing; ended → replay.  
-14. Sticky player swipe dismiss: no `snapTo(0)` + `ExitTransition.None`.  
-15. Call detail: sticky name/number; avatar scale/alpha collapse on scroll.
+14. Sticky player: opaque clip; clearance = tabs + halo + 12dp; swipe dismiss without `snapTo(0)`.  
+15. Call detail: sticky name/number; avatar scale/alpha collapse on scroll.  
+16. Proximity: no `screenBrightness` + proximity wake-lock; earpiece switch without audio-focus renegotiation.
 
 ---
 

@@ -181,7 +181,13 @@ class CallPlaybackController @Inject constructor(
     fun setEarpiece(enabled: Boolean) {
         if (_state.value.earpiece == enabled) return
         _state.update { it.copy(earpiece = enabled) }
-        if (enabled) applyEarpieceRoute() else applySpeakerRoute()
+        // Route changes must stay on main and never abort playback on OEM quirks.
+        runCatching {
+            if (enabled) applyEarpieceRoute() else applySpeakerRoute()
+        }.onFailure {
+            // Roll back flag if the device rejected the route switch.
+            _state.update { state -> state.copy(earpiece = !enabled) }
+        }
     }
 
     fun hide() {
@@ -236,7 +242,12 @@ class CallPlaybackController @Inject constructor(
     private fun ensurePlayer() {
         if (player != null) return
         player = ExoPlayer.Builder(appContext).build().also { exo ->
-            applySpeakerRoute(exo)
+            // Initial focus request is OK before playback starts.
+            exo.setAudioAttributes(mediaAudioAttributes(), /* handleAudioFocus = */ true)
+            clearCommunicationDevice()
+            audioManager.mode = AudioManager.MODE_NORMAL
+            @Suppress("DEPRECATION")
+            audioManager.isSpeakerphoneOn = false
             exo.volume = 1f
             exo.addListener(object : Player.Listener {
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -275,29 +286,48 @@ class CallPlaybackController @Inject constructor(
     }
 
     private fun applySpeakerRoute(exo: ExoPlayer? = player) {
+        clearCommunicationDevice()
         audioManager.mode = AudioManager.MODE_NORMAL
         @Suppress("DEPRECATION")
         audioManager.isSpeakerphoneOn = false
-        exo?.setAudioAttributes(
-            AudioAttributes.Builder()
-                .setUsage(C.USAGE_MEDIA)
-                .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
-                .build(),
-            true,
-        )
+        // Avoid focus renegotiation while the same ExoPlayer instance keeps playing —
+        // USAGE switch + handleAudioFocus=true crashes AudioTrack on Tecno/HiOS.
+        exo?.setAudioAttributes(mediaAudioAttributes(), /* handleAudioFocus = */ false)
     }
 
     private fun applyEarpieceRoute(exo: ExoPlayer? = player) {
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
         @Suppress("DEPRECATION")
         audioManager.isSpeakerphoneOn = false
-        exo?.setAudioAttributes(
-            AudioAttributes.Builder()
-                .setUsage(C.USAGE_VOICE_COMMUNICATION)
-                .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
-                .build(),
-            true,
-        )
+        requestEarpieceDevice()
+        exo?.setAudioAttributes(earpieceAudioAttributes(), /* handleAudioFocus = */ false)
+    }
+
+    private fun mediaAudioAttributes(): AudioAttributes =
+        AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
+            .build()
+
+    private fun earpieceAudioAttributes(): AudioAttributes =
+        AudioAttributes.Builder()
+            .setUsage(C.USAGE_VOICE_COMMUNICATION)
+            .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
+            .build()
+
+    private fun requestEarpieceDevice() {
+        if (Build.VERSION.SDK_INT < 31) return
+        runCatching {
+            val earpiece = audioManager.availableCommunicationDevices
+                .firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_EARPIECE }
+                ?: return
+            audioManager.setCommunicationDevice(earpiece)
+        }
+    }
+
+    private fun clearCommunicationDevice() {
+        if (Build.VERSION.SDK_INT < 31) return
+        runCatching { audioManager.clearCommunicationDevice() }
     }
 
     private fun startTicker() {

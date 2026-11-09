@@ -1,20 +1,27 @@
 package com.alekseevich47.callmemo.player
 
-import android.app.Activity
 import android.content.Context
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
-import android.view.WindowManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalContext
 
 /**
- * While [active], holding the phone to the ear turns the screen off (proximity wake-lock)
- * and routes playback to the earpiece like a phone call.
+ * While [active], holding the phone to the ear routes playback to the earpiece and
+ * engages a proximity screen-off wake lock (like a phone call).
+ *
+ * Safety notes (OEM crash sources avoided):
+ * - Sensor callbacks always marshalled onto the main looper.
+ * - No manual [android.view.WindowManager.LayoutParams.screenBrightness] changes —
+ *   combining them with [PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK] crashes on
+ *   several Transsion/Tecno builds.
+ * - Wake-lock acquire/release wrapped in runCatching.
  */
 @Composable
 fun ProximityPlaybackEffect(
@@ -27,49 +34,84 @@ fun ProximityPlaybackEffect(
             onNearChanged(false)
             return@DisposableEffect onDispose { }
         }
-        val activity = context as? Activity
-        val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+
+        val appContext = context.applicationContext
+        val sensorManager = appContext.getSystemService(Context.SENSOR_SERVICE) as SensorManager
         val proximity = sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY)
-        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        if (proximity == null) {
+            onNearChanged(false)
+            return@DisposableEffect onDispose { }
+        }
+
+        val powerManager = appContext.getSystemService(Context.POWER_SERVICE) as PowerManager
         @Suppress("DEPRECATION")
-        val wakeLock = powerManager.newWakeLock(
-            PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK,
-            "callmemo:earpiece",
-        )
+        val wakeLock = runCatching {
+            powerManager.newWakeLock(
+                PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK,
+                "callmemo:earpiece",
+            ).apply { setReferenceCounted(false) }
+        }.getOrNull()
+
         var near = false
+        val mainHandler = Handler(Looper.getMainLooper())
+
+        fun releaseLock() {
+            val lock = wakeLock ?: return
+            runCatching {
+                if (lock.isHeld) lock.release()
+            }
+        }
+
+        fun acquireLock() {
+            val lock = wakeLock ?: return
+            runCatching {
+                if (!lock.isHeld) {
+                    // Cap hold time so a stuck near-state cannot drain the battery.
+                    lock.acquire(10 * 60 * 1000L)
+                }
+            }
+        }
+
         val listener = object : SensorEventListener {
             override fun onSensorChanged(event: SensorEvent?) {
-                val value = event?.values?.firstOrNull() ?: return
-                val max = proximity?.maximumRange ?: 5f
-                val isNear = value < max.coerceAtMost(5f)
+                val values = event?.values ?: return
+                if (values.isEmpty()) return
+                val max = proximity.maximumRange.coerceAtLeast(0.1f)
+                // Binary proximity sensors report maxRange when far; near when below threshold.
+                val threshold = max.coerceAtMost(5f)
+                val isNear = values[0] < threshold
                 if (isNear == near) return
                 near = isNear
-                onNearChanged(isNear)
-                if (isNear) {
-                    if (!wakeLock.isHeld) wakeLock.acquire(10 * 60 * 1000L)
-                    activity?.window?.attributes = activity.window.attributes.apply {
-                        screenBrightness = 0.01f
-                    }
-                } else {
-                    if (wakeLock.isHeld) wakeLock.release()
-                    activity?.window?.attributes = activity.window.attributes.apply {
-                        screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
-                    }
+
+                // Ensure UI / AudioManager work stays on main (some OEMs deliver off-main).
+                mainHandler.post {
+                    onNearChanged(isNear)
+                    if (isNear) acquireLock() else releaseLock()
                 }
             }
 
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
         }
-        if (proximity != null) {
-            sensorManager.registerListener(listener, proximity, SensorManager.SENSOR_DELAY_NORMAL)
-        }
-        onDispose {
-            sensorManager.unregisterListener(listener)
-            if (wakeLock.isHeld) wakeLock.release()
+
+        val registered = runCatching {
+            sensorManager.registerListener(
+                listener,
+                proximity,
+                SensorManager.SENSOR_DELAY_NORMAL,
+                mainHandler,
+            )
+        }.getOrDefault(false)
+
+        if (!registered) {
             onNearChanged(false)
-            activity?.window?.attributes = activity.window.attributes.apply {
-                screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
-            }
+            return@DisposableEffect onDispose { }
+        }
+
+        onDispose {
+            runCatching { sensorManager.unregisterListener(listener) }
+            mainHandler.removeCallbacksAndMessages(null)
+            releaseLock()
+            onNearChanged(false)
         }
     }
 }
