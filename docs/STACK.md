@@ -4,7 +4,8 @@
 > Цель: не забывать, **что уже есть**, **где лежит** и **как применяется**.  
 > UI-спека / макеты: [UI.md](UI.md). Макеты: `docs/mockups/`.
 
-**Последнее обновление:** 2026-11-09 (proximity crash-safe; dialpad bottom-dock; opaque sticky player above tabs).
+**Последнее обновление:** 2026-11-09 09:07 (Asia/Novosibirsk) — v0.1.8 (changelog + proximity/dialpad/player).  
+**Changelog:** краткая таблица — [§15](#15-история-обновлений); подробно — [update.md](update.md).
 
 ---
 
@@ -17,7 +18,7 @@ Android-звонилка (замена штатной) + прослушиван�
 | Package / applicationId | `com.alekseevich47.callmemo` (+ `.debug` в debug) |
 | App name | CallMemo |
 | minSdk / targetSdk / compileSdk | 29 / 35 / 35 |
-| versionName | `0.1.0` |
+| versionName / versionCode | `0.1.8` / `8` |
 | Дистрибуция сейчас | sideload APK из GitHub Actions |
 | Целевое устройство владельца | Tecno (HiOS / Transsion) |
 
@@ -383,6 +384,27 @@ push main | cursor/**  +  pull_request
 - chrome / FAB / player / dialpad → §6  
 - статус фичи → §8, §10, §11  
 - ловушка → §13  
+- релиз / заметный фикс → §15 + [update.md](update.md); bump `versionName`/`versionCode` в `app/build.gradle.kts`
 
-В начале файла обновить строку **«Последнее обновление»**.  
+В начале файла обновить строку **«Последнее обновление»** (дата/время Asia/Novosibirsk + версия).  
 Не дублировать длинные UI-промпты — они в [UI.md](UI.md).
+
+---
+
+## 15. История обновлений
+
+Краткая лента. Время — **Asia/Novosibirsk (UTC+7)**. Подробности — [update.md](update.md).
+
+| Дата и время | Версия | Изменения (кратко) | PR / ветка |
+|--------------|--------|--------------------|------------|
+| 2026-11-07 22:40 | `0.0.1` | Initial commit репозитория | `main` |
+| 2026-11-07 23:21 | `0.1.0-docs` | STACK, OEM-пресеты записей, UI-карта/промпт | [#1](https://github.com/alekseevich47/callmemo/pull/1) |
+| 2026-11-08 00:04 | `0.1.0` | Android shell из макета + CI APK artifact | [#1](https://github.com/alekseevich47/callmemo/pull/1) |
+| 2026-11-08 01:37 | `0.1.1` | Реальные CallLog/Contacts, glass chrome, dialpad overlay | [#1](https://github.com/alekseevich47/callmemo/pull/1) |
+| 2026-11-08 03:06 | `0.1.2` | Playback/waveform/proximity, фильтры дат, drag dialpad | [#1](https://github.com/alekseevich47/callmemo/pull/1) |
+| 2026-11-08 04:26 | `0.1.3` | STACK.md → живые правила архитектуры | [#1](https://github.com/alekseevich47/callmemo/pull/1) |
+| 2026-11-08 04:58 | `0.1.4` | Haze/AGSL glass, dialpad Calls UX, tennis date picker, sticky detail | [#2](https://github.com/alekseevich47/callmemo/pull/2) |
+| 2026-11-08 05:52 | `0.1.5` | UI hang fix, Tecno PhoneRecord AAC, без false recording matches | [#3](https://github.com/alekseevich47/callmemo/pull/3) |
+| 2026-11-08 09:30 | `0.1.6` | Dialpad under tabs, scroll-dismiss, glass halo, no negative padding crash | [#3](https://github.com/alekseevich47/callmemo/pull/3) |
+| 2026-11-09 08:41 | `0.1.7` | Pin dialpad к низу экрана, clearance FAB над меню | [#3](https://github.com/alekseevich47/callmemo/pull/3) |
+| 2026-11-09 09:07 | `0.1.8` | Proximity crash-safe; dialpad content-dock; opaque sticky player above tabs; changelog | [#4](https://github.com/alekseevich47/callmemo/pull/4) |

@@ -19,6 +19,7 @@ Android-звонилка (замена штатной) с импортом за�
 
 ## Документация
 
-- [docs/STACK.md](docs/STACK.md) — стек, запись, STT
+- [docs/STACK.md](docs/STACK.md) — стек, архитектура, правила, таблица обновлений
+- [docs/update.md](docs/update.md) — подробный журнал версий
 - [docs/UI.md](docs/UI.md) — экраны и функционал
 - [docs/mockups/callmemo-ui.png](docs/mockups/callmemo-ui.png) — макет
