@@ -164,17 +164,26 @@ fun GlassBottomBar(
     onSelect: (TopLevelDestination) -> Unit,
     hazeState: dev.chrisbanes.haze.HazeState,
     barModifier: Modifier = Modifier,
+    /**
+     * Progressive haze halo around the plate. Prefer **false** while the dialpad
+     * sheet is open: the halo pads a ~22dp rectangle that reads as a full-band
+     * barrier above/below the chips and blocks the sheet from sitting flush under
+     * the menu. Width must stay wrap-content (never fillMaxWidth) for the same reason.
+     */
+    halo: Boolean = true,
 ) {
     val plateShape = RoundedCornerShape(LiquidGlassTokens.DefaultCorner)
+    // Wrap to the glass plate only — a fillMaxWidth host creates an invisible
+    // full-screen-width hit/layout band around the menu (the "zone" over the dialpad).
     Box(
-        modifier = barModifier
-            .fillMaxWidth()
-            // Halo extent is drawn inside LiquidGlassPlate — keep bar inset tight.
-            .padding(horizontal = 10.dp, vertical = 0.dp),
+        modifier = barModifier.padding(horizontal = 10.dp),
         contentAlignment = Alignment.Center,
     ) {
-        // Single tight glass plate wrapping chips only (no full-width underlay).
-        LiquidGlassPlate(hazeState = hazeState, shape = plateShape) {
+        LiquidGlassPlate(
+            hazeState = hazeState,
+            shape = plateShape,
+            halo = halo,
+        ) {
             Row(
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),

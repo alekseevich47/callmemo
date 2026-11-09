@@ -4,7 +4,7 @@
 > Цель: не забывать, **что уже есть**, **где лежит** и **как применяется**.  
 > UI-спека / макеты: [UI.md](UI.md). Макеты: `docs/mockups/`.
 
-**Последнее обновление:** 2026-11-09 09:07 (Asia/Novosibirsk) — v0.1.8 (changelog + proximity/dialpad/player).  
+**Последнее обновление:** 2026-11-09 09:22 (Asia/Novosibirsk) — v0.1.9 (glass menu: no full-width/halo band over dialpad).  
 **Changelog:** краткая таблица — [§15](#15-история-обновлений); подробно — [update.md](update.md).
 
 ---
@@ -18,7 +18,7 @@ Android-звонилка (замена штатной) + прослушиван�
 | Package / applicationId | `com.alekseevich47.callmemo` (+ `.debug` в debug) |
 | App name | CallMemo |
 | minSdk / targetSdk / compileSdk | 29 / 35 / 35 |
-| versionName / versionCode | `0.1.8` / `8` |
+| versionName / versionCode | `0.1.9` / `9` |
 | Дистрибуция сейчас | sideload APK из GitHub Actions |
 | Целевое устройство владельца | Tecno (HiOS / Transsion) |
 
@@ -176,7 +176,8 @@ Telecom → `MainActivity.ACTION_SHOW_INCOMING` / `SHOW_IN_CALL` / `OPEN_CALL_DE
 
 ### Glass bottom bar
 
-- **Одна** плашка по ширине чипов (`LiquidGlassPlate`) — без full-width underlay.
+- **Одна** плашка по ширине чипов (`LiquidGlassPlate`) — хост **wrap-content**, **никогда** `fillMaxWidth` (иначе невидимая полноширинная зона вокруг меню перехватывает тачи и визуально «подпирает» dialpad).
+- Progressive **halo выключать**, пока смонтирован dialpad (`halo = !dialpadMounted`) — halo pads ~22dp прямоугольник вверх/вниз от чипов и мешает шторке лечь под меню.
 - Активный таб: только цвет иконки/текста (синий), без заливки чипа.
 - Ripple со **скруглёнными** углами (`clip` + `ripple`).
 - Плашка **поверх** списка и **поверх dialpad** (zIndex tabs `4` > dialpad `2`).
@@ -287,7 +288,7 @@ state: PlaybackUiState(visible, callId, name, number, uri, playing,
 | Экран | Статус |
 |-------|--------|
 | Звонки + поиск + фильтр дат | ✅; dialpad open-by-default; scroll hides sheet |
-| Dialpad overlay | ✅; bottom-docked; content-height; call FAB above tabs; FAB when closed |
+| Dialpad overlay | ✅; bottom-docked under wrap-width menu (no halo band); call FAB above tabs |
 | Деталка: sticky имя/номер, collapsing avatar, history, inline play | ✅ |
 | Sticky player + notification + proximity | ✅; opaque; above tabs+halo; crash-safe proximity |
 | Контакты (системные) | ✅; FAB «добавить» — stub (`ChromeFab`) |
@@ -364,7 +365,7 @@ push main | cursor/**  +  pull_request
 6. FAB: только через `ChromeFab` / `ChromeFabBottomPadding=90.dp`; при видимом player — `playerClearance + 64.dp`.  
 7. Длительность плеера = media duration / duration звонка; **не** хардкодить 20 с.  
 8. Room call_logs/contacts — не писать «в журнал» из InCall вместо системного CallLog, пока нет явной стратегии кэша.  
-9. Glass — fill α=0.25 + blur 22dp + AGSL≈56 + progressive halo.  
+9. Glass — fill α=0.25 + blur 22dp + AGSL≈56; progressive halo **off** while dialpad mounted; bar host never `fillMaxWidth`.  
 10. Dialpad: **content-height + bottom-dock**, не `%` экрана / не weight-spacer; dismiss **30%**; Calls → open; scroll → close.  
 11. Не использовать `topLevel!!` в chrome во время exit-анимации — только `lastTopLevel`.  
 12. Date pickers — tennis-модалки из `DatePickerModals.kt`, не Material DatePickerDialog.  
@@ -408,3 +409,4 @@ push main | cursor/**  +  pull_request
 | 2026-11-08 09:30 | `0.1.6` | Dialpad under tabs, scroll-dismiss, glass halo, no negative padding crash | [#3](https://github.com/alekseevich47/callmemo/pull/3) |
 | 2026-11-09 08:41 | `0.1.7` | Pin dialpad к низу экрана, clearance FAB над меню | [#3](https://github.com/alekseevich47/callmemo/pull/3) |
 | 2026-11-09 09:07 | `0.1.8` | Proximity crash-safe; dialpad content-dock; opaque sticky player above tabs; changelog | [#4](https://github.com/alekseevich47/callmemo/pull/4) |
+| 2026-11-09 09:22 | `0.1.9` | Glass menu: убран full-width host + halo-band над dialpad | [#4](https://github.com/alekseevich47/callmemo/pull/4) |

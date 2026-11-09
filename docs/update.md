@@ -7,6 +7,27 @@
 
 ---
 
+## 0.1.9 — Glass menu: убрана полноширинная зона вокруг табов
+
+| | |
+|--|--|
+| **Когда** | 2026-11-09 09:22 (Asia/Novosibirsk) |
+| **PR** | [#4](https://github.com/alekseevich47/callmemo/pull/4) `cursor/playback-dialpad-player-45fb` |
+| **versionCode** | `9` |
+
+Причина, почему шторка «не опускалась» под меню:
+
+1. `GlassBottomBar` сидел в хосте с **`fillMaxWidth()`** — невидимый прямоугольник на всю ширину экрана над/вокруг меню (hit-target + визуальный зазор).
+2. Progressive **haze halo** (`HaloExtent ≈ 22dp`) дополнительно раздувал layout вверх/вниз от чипов, пока dialpad открыт.
+
+Исправление:
+
+- Хост меню — **wrap-content** по ширине чипов (центрируется через `align(BottomCenter)`), без `fillMaxWidth`.
+- `halo = !dialpadMounted` — пока смонтирована шторка, halo выключен.
+- `tabsReserve` считаем по высоте chip-plate (~64dp), без halo-band.
+
+---
+
 ## Как вести этот файл
 
 При каждом заметном PR / итерации агента:
