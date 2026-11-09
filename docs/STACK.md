@@ -424,4 +424,4 @@ push main | cursor/**  +  pull_request
 | 2026-11-09 09:07 | `0.1.8` | Proximity crash-safe; dialpad content-dock; opaque sticky player above tabs; changelog | [#4](https://github.com/alekseevich47/callmemo/pull/4) |
 | 2026-11-09 09:22 | `0.1.9` | Glass menu: убран full-width host + halo-band над dialpad | [#4](https://github.com/alekseevich47/callmemo/pull/4) |
 | 2026-11-09 09:40 | `0.1.10` | Compositor bleed fix (no AGSL; Offscreen chrome); меню без прыжка Y | [#4](https://github.com/alekseevich47/callmemo/pull/4) |
-| 2026-11-09 09:55 | `0.1.11` | In-call: answer, имя контакта, таймер после ACTIVE, proximity, hold/BT/mute | `cursor/call-controls-fix-18e8` |
+| 2026-11-09 09:55 | `0.1.11` | In-call: answer, имя контакта, таймер после ACTIVE, proximity, hold/BT/mute | [#5](https://github.com/alekseevich47/callmemo/pull/5) |

@@ -12,7 +12,7 @@
 | | |
 |--|--|
 | **Когда** | 2026-11-09 09:55 (Asia/Novosibirsk) |
-| **Ветка** | `cursor/call-controls-fix-18e8` (база: `cursor/playback-dialpad-player-45fb`) |
+| **PR** | [#5](https://github.com/alekseevich47/callmemo/pull/5) `cursor/call-controls-fix-18e8` |
 | **versionCode** | `11` |
 
 Пользовательские баги во время звонка:
